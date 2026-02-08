@@ -278,6 +278,7 @@ void app_main(void)
         0
     );
 
+    
     wifi_smartconfig_sta();
     wifi_config_wait_connected();
 
