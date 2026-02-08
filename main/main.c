@@ -39,6 +39,8 @@
 #include "tud_flash.h"
 #include "huawei_ota.h"
 #include "esp_ota_ops.h"
+//#include "web_server.h"
+
 
 static const char *TAG = "MAIN";
 i2c_obj_t i2c0_master;
@@ -240,6 +242,7 @@ void app_main(void)
     char logo_str[64]= {0};
 
     ret = nvs_flash_init();
+     //   ESP_ERROR_CHECK(nvs_flash_erase());
 
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
     {
@@ -249,6 +252,7 @@ void app_main(void)
     
     ota_read_success_flag();
     ota_check_and_confirm();
+
     led_init();
     i2c0_master = iic_init(I2C_NUM_0);
     spi2_init();
@@ -280,7 +284,7 @@ void app_main(void)
 
     wifi_smartconfig_sta();
     wifi_config_wait_connected();
-
+    //web_server_start();
     initialize_sntp_v5();
     
     lwip_demo();              

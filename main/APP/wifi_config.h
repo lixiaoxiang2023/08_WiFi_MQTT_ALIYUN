@@ -29,10 +29,13 @@
 #define WIFI_CFG_CONNECTED_BIT   BIT0
 #define WIFI_CFG_SC_DONE_BIT     BIT1
 
+#define STA_AP_MOE 0
+
 /* 获取内部 EventGroup（高级用法） */
 EventGroupHandle_t wifi_config_get_event_group(void);
 /* 声明函数 */
 esp_err_t wifi_smartconfig_sta(void);
 /* 阻塞等待 WiFi 连接成功（拿到 IP） */
 void wifi_config_wait_connected(void);
+esp_err_t wifi_apply_config(const char *ssid, const char *password);
 #endif

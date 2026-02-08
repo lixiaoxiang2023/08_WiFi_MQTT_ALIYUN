@@ -8,6 +8,7 @@ set(src_dirs
             JSONPRO
             SDIO
             OBS
+            WEB
             XL9555)
 
 set(include_dirs
@@ -21,6 +22,7 @@ set(include_dirs
             JSONPRO
             SDIO   
             OBS
+            WEB
             XL9555)
 
 set(requires
@@ -33,6 +35,7 @@ set(requires
             app_update
             esp_https_ota
             esp_http_client
+            esp_http_server
             esp_system)
 
 idf_component_register(SRC_DIRS ${src_dirs} INCLUDE_DIRS ${include_dirs} REQUIRES ${requires} )
