@@ -6,6 +6,7 @@
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include <string.h>
+#include "lcd.h"
 
 static const char *TAG = "wifi_config";
 
@@ -84,13 +85,6 @@ esp_err_t wifi_smartconfig_sta(void)
 {
     esp_err_t ret;
 
-    /* ---------- NVS ---------- */
-    ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ESP_ERROR_CHECK(nvs_flash_init());
-    }
-
     s_wifi_event_group = xEventGroupCreate();
     if (!s_wifi_event_group) {
         return ESP_ERR_NO_MEM;
@@ -118,8 +112,13 @@ esp_err_t wifi_smartconfig_sta(void)
     if (ret == ESP_OK && strlen((char *)wifi_cfg.sta.ssid) > 0) {
         ESP_LOGI(TAG, "Found saved WiFi: %s", wifi_cfg.sta.ssid);
         esp_wifi_connect();
+        char ssid_str[64] = {0};
+        snprintf(ssid_str, sizeof(ssid_str), "SSID: %s", wifi_cfg.sta.ssid);
+        lcd_show_string(30, 70, 200, 16, 16, ssid_str, RED);
+
     } else {
         ESP_LOGW(TAG, "No WiFi config, start SmartConfig");
+        lcd_show_string(30, 70, 200, 16, 16, "No WiFi Connet", RED);
         xTaskCreate(smartconfig_task, "smartconfig_task", 4096, NULL, 3, NULL);
     }
 

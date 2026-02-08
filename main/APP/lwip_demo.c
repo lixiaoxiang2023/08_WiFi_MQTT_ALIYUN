@@ -423,6 +423,7 @@ static void mqtt_event_handler(void *handler_args,
     case MQTT_EVENT_CONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
         g_publish_flag = 1;
+        lcd_show_string(30, 90, 200, 16, 16, "MQTT Connected", RED);
 
         msg_id = esp_mqtt_client_subscribe(client, DEVICE_SUBSCRIBE, 0);
         huawei_cmd_init(client);
@@ -437,6 +438,7 @@ static void mqtt_event_handler(void *handler_args,
 
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGW(TAG, "MQTT_EVENT_DISCONNECTED");
+        lcd_show_string(30, 90, 200, 16, 16, "MQTT Disconnected", RED);
         break;
 
     case MQTT_EVENT_SUBSCRIBED:
@@ -488,6 +490,7 @@ static void mqtt_event_handler(void *handler_args,
 
     case MQTT_EVENT_ERROR:
         ESP_LOGE(TAG, "MQTT_EVENT_ERROR");
+        lcd_show_string(30, 90, 200, 16, 16, "MQTT ERROR", RED);
         break;
 
     default:

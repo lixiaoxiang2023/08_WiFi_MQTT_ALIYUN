@@ -237,6 +237,7 @@ void ota_check_and_confirm(void)
 void app_main(void)
 {
     esp_err_t ret;
+    char logo_str[64]= {0};
 
     ret = nvs_flash_init();
 
@@ -245,6 +246,7 @@ void app_main(void)
         ESP_ERROR_CHECK(nvs_flash_erase());
         ret = nvs_flash_init();
     }
+    
     ota_read_success_flag();
     ota_check_and_confirm();
     led_init();
@@ -253,9 +255,10 @@ void app_main(void)
     xl9555_init(i2c0_master);
     lcd_init();
 
-    lcd_show_string(30, 50, 200, 16, 16, "ESP32", RED);
-    lcd_show_string(30, 70, 200, 16, 16, "SD TEST", RED);
-    lcd_show_string(30, 90, 200, 16, 16, "ATOM@ALIENTEK", RED);
+    snprintf(logo_str, sizeof(logo_str), "Version: %s", FW_VERSION);
+    lcd_show_string(30, 50, 200, 16, 16, logo_str, RED);
+    //lcd_show_string(30, 70, 200, 16, 16, "SD TEST", RED);
+    //lcd_show_string(30, 90, 200, 16, 16, "ATOM@ALIENTEK", RED);
     ESP_LOGI("MAIN", "soft version: %s",FW_VERSION);
     firmware_storage_check(NULL);
     tud_usb_flash();
