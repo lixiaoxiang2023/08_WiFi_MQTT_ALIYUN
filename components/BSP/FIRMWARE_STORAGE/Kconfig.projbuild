@@ -1,0 +1,47 @@
+# components/firmware_storage/Kconfig.projbuild
+menu "Firmware Storage Configuration"
+
+    config FIRMWARE_STORAGE_BASE_PATH
+        string "SPIFFS mount path"
+        default "/spiffs"
+        help
+            Base path for SPIFFS filesystem mount.
+    
+    config FIRMWARE_STORAGE_PARTITION_LABEL
+        string "SPIFFS partition label"
+        default "storage"
+        help
+            Label of the SPIFFS partition in partition table.
+    
+    config FIRMWARE_STORAGE_MAX_FILE_SIZE
+        int "Maximum firmware file size (bytes)"
+        default 1048576
+        range 65536 4194304
+        help
+            Maximum size of a single firmware file in bytes.
+    
+    config FIRMWARE_STORAGE_CHECKSUM_TYPE
+        int "Checksum type"
+        range 0 4
+        default 3
+        help
+            0: No checksum
+            1: CRC32
+            2: MD5
+            3: SHA256
+            4: SHA1
+    
+    config FIRMWARE_STORAGE_ENABLE_CACHE
+        bool "Enable write cache"
+        default y
+        help
+            Enable caching for better write performance.
+    
+    config FIRMWARE_STORAGE_LOG_LEVEL
+        int "Log level"
+        range 0 5
+        default 3
+        help
+            Log level for firmware storage library (0=None, 5=Verbose).
+
+endmenu
