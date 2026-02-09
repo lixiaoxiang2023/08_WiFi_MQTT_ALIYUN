@@ -111,6 +111,9 @@ static QueueHandle_t usb_copy_queue;
 void usb_copy_task(void *arg)
 {
     file_copy_msg_t msg;
+    tud_usb_flash();
+    usb_copy_queue = xQueueCreate(2, sizeof(file_copy_msg_t));
+    vTaskDelay(pdMS_TO_TICKS(3000));  // 等系统稳定
 
     while (1) {
         if (xQueueReceive(usb_copy_queue, &msg, portMAX_DELAY)) {
@@ -161,7 +164,9 @@ void usb_copy_task(void *arg)
 void file_task_worker(void *arg)
 {
     char *json;
-    
+    file_task_queue = xQueueCreate(3, sizeof(char *));
+    assert(file_task_queue);
+
     while (1) {
         if (xQueueReceive(file_task_queue, &json, portMAX_DELAY)) {
 
@@ -235,57 +240,82 @@ void ota_check_and_confirm(void)
     }
 }
 
-
-void app_main(void)
+void print_task_list(void)
 {
-    esp_err_t ret;
-    char logo_str[64]= {0};
+    char buf[1024];
 
-    ret = nvs_flash_init();
-     //   ESP_ERROR_CHECK(nvs_flash_erase());
+    vTaskList(buf);
+    ESP_LOGI("TASK", "Name\tState\tPrio\tStack\tNum\n%s", buf);
+}
 
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
-    {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ret = nvs_flash_init();
-    }
-    
+void debug_task(void *arg)
+{
+    vTaskDelay(pdMS_TO_TICKS(3000));   // 等系统跑稳
+
+    char buf[2048];
+    vTaskList(buf);
+    ESP_LOGI("TASK", "Name  State Prio Stack Num\n%s", buf);
+
+    vTaskDelete(NULL);
+}
+
+void system_task(void *arg)
+{
+    char logo_str[64] = {0};
+
+    vTaskDelay(pdMS_TO_TICKS(300));  // 给外设时间
+
     ota_read_success_flag();
     ota_check_and_confirm();
 
-    led_init();
     i2c0_master = iic_init(I2C_NUM_0);
-    spi2_init();
     xl9555_init(i2c0_master);
+
+    spi2_init();
     lcd_init();
 
     snprintf(logo_str, sizeof(logo_str), "Version: %s", FW_VERSION);
     lcd_show_string(30, 50, 200, 16, 16, logo_str, RED);
-    //lcd_show_string(30, 70, 200, 16, 16, "SD TEST", RED);
-    //lcd_show_string(30, 90, 200, 16, 16, "ATOM@ALIENTEK", RED);
+
     ESP_LOGI("MAIN", "soft version: %s",FW_VERSION);
     firmware_storage_check(NULL);
-    tud_usb_flash();
-
-    usb_copy_queue = xQueueCreate(2, sizeof(file_copy_msg_t));
-    file_task_queue = xQueueCreate(3, sizeof(char *));
-    assert(file_task_queue);
-
-    xTaskCreate(file_task_worker, "file_task_worker", 6 * 1024, NULL, 5, NULL);
-    xTaskCreatePinnedToCore(
-        usb_copy_task,
-        "usb_copy",
-        4096,
-        NULL,
-        4,
-        NULL,
-        0
-    );
 
     wifi_smartconfig_sta();
     wifi_config_wait_connected();
-    //web_server_start();
+
     initialize_sntp_v5();
-    
-    lwip_demo();              
+
+    xTaskCreate(lwip_task, "lwip", 6*1024, NULL, 5, NULL);
+
+    vTaskDelete(NULL);
+}
+
+
+void app_main(void)
+{
+    vTaskDelay(pdMS_TO_TICKS(200));   // 冷启动保护
+
+    ESP_ERROR_CHECK(nvs_flash_init());
+
+    led_init();   // 只留最安全的外设
+
+    xTaskCreate(
+        system_task,
+        "system_task",
+        6 * 1024,
+        NULL,
+        8,
+        NULL
+    );
+
+    xTaskCreate(
+        debug_task,
+        "debug",
+        4096,
+        NULL,
+        1,
+        NULL
+    );
+
+    ESP_LOGI("MAIN", "app_main exit");
 }

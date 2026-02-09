@@ -108,6 +108,6 @@ void huawei_cmd_feed_topic(const char *topic, int topic_len);
 /* worker 线程中调用，返回 true 表示已处理 */
 bool huawei_cmd_handle(const char *json);
 void mqtt_cmd_handler(const char *json);
-void lwip_demo(void);
+void lwip_task(void *arg);
 
 #endif

@@ -506,7 +506,7 @@ extern void file_task_worker(void *arg);
  * @retval      无
  */
 
-void lwip_demo(void)
+void lwip_task(void *arg)
 {
     char mqtt_publish_data[100] = {0};
     char mqtt_uri[256];
