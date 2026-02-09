@@ -29,7 +29,7 @@
 #define WIFI_CFG_CONNECTED_BIT   BIT0
 #define WIFI_CFG_SC_DONE_BIT     BIT1
 
-#define STA_AP_MOE 0
+//#define STA_AP_MOE 0
 
 /* 获取内部 EventGroup（高级用法） */
 EventGroupHandle_t wifi_config_get_event_group(void);
