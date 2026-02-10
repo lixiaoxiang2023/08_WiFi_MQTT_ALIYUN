@@ -255,7 +255,7 @@ void debug_task(void *arg)
     char buf[2048];
     vTaskList(buf);
     ESP_LOGI("TASK", "Name  State Prio Stack Num\n%s", buf);
-
+ //   LED_TOGGLE();
     vTaskDelete(NULL);
 }
 
@@ -274,11 +274,16 @@ void system_task(void *arg)
     spi2_init();
     lcd_init();
 
+   // vTaskDelay(pdMS_TO_TICKS(300));  // 给外设时间
     snprintf(logo_str, sizeof(logo_str), "Version: %s", FW_VERSION);
     lcd_show_string(30, 50, 200, 16, 16, logo_str, RED);
 
     ESP_LOGI("MAIN", "soft version: %s",FW_VERSION);
     firmware_storage_check(NULL);
+    
+    xTaskCreate(usb_copy_task, "usb_copy_task", 6*1024, NULL, 6, NULL);   
+    xTaskCreate(file_task_worker, "file_task_worker", 6*1024, NULL, 7, NULL);
+
 
     wifi_smartconfig_sta();
     wifi_config_wait_connected();
@@ -298,22 +303,22 @@ void app_main(void)
     ESP_ERROR_CHECK(nvs_flash_init());
 
     led_init();   // 只留最安全的外设
-
-    xTaskCreate(
-        system_task,
-        "system_task",
-        6 * 1024,
-        NULL,
-        8,
-        NULL
-    );
-
+    
     xTaskCreate(
         debug_task,
         "debug",
         4096,
         NULL,
         1,
+        NULL
+    );
+    
+    xTaskCreate(
+        system_task,
+        "system_task",
+        6 * 1024,
+        NULL,
+        8,
         NULL
     );
 
