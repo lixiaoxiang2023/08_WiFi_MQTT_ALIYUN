@@ -39,4 +39,5 @@ esp_err_t wifi_smartconfig_sta(void);
 void wifi_config_wait_connected(void);
 esp_err_t wifi_apply_config(const char *ssid, const char *password);
 esp_err_t wifi_scan_handler(httpd_req_t *req);
+esp_err_t save_config_handler(httpd_req_t *req);
 #endif

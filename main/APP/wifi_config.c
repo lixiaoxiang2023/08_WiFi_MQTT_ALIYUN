@@ -317,3 +317,34 @@ esp_err_t wifi_scan_handler(httpd_req_t *req)
 
     return ESP_OK;
 }
+
+typedef struct {
+    char local_file[64];
+    char upload_server[64];
+} data_config_t;
+
+data_config_t g_data_config;
+
+esp_err_t save_config_handler(httpd_req_t *req)
+{
+    char buf[128];
+    int ret = httpd_req_recv(req, buf, req->content_len);
+    if (ret <= 0) return ESP_FAIL;
+    buf[ret] = 0;
+
+    cJSON *json = cJSON_Parse(buf);
+    if (!json) return ESP_FAIL;
+
+    const cJSON *local = cJSON_GetObjectItem(json, "localFile");
+    const cJSON *server = cJSON_GetObjectItem(json, "uploadServer");
+
+    if (local && server) {
+        strncpy(g_data_config.local_file, local->valuestring, sizeof(g_data_config.local_file)-1);
+        strncpy(g_data_config.upload_server, server->valuestring, sizeof(g_data_config.upload_server)-1);
+    }
+    ESP_LOGI(TAG, "local: %s upload_server: %s",g_data_config.local_file,g_data_config.upload_server);
+
+    cJSON_Delete(json);
+    httpd_resp_sendstr(req, "OK");
+    return ESP_OK;
+}

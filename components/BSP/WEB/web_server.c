@@ -40,8 +40,15 @@ void web_server_start(void)
         .handler  = wifi_scan_handler,
         .user_ctx = NULL
     };
+    httpd_uri_t save_config_uri = {
+        .uri      = "/save_config",
+        .method   = HTTP_POST,
+        .handler  = save_config_handler,
+        .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &wifi_scan_uri);  
+    httpd_register_uri_handler(server, &save_config_uri);
 
-    httpd_register_uri_handler(server, &wifi_scan_uri);
 }
 
 void web_server_stop(void)
