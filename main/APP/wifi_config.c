@@ -7,6 +7,7 @@
 #include "nvs_flash.h"
 #include <string.h>
 #include "lcd.h"
+#include "cJSON.h"
 
 #ifdef STA_AP_MODE
     #include "web_server.h"
@@ -240,4 +241,79 @@ static void smartconfig_task(void *parm)
             vTaskDelete(NULL);
         }
     }
+}
+
+#define MAX_SCAN_RESULTS 20
+typedef struct {
+    char ssid[33];  // SSID + '\0'
+    int8_t rssi;
+} scan_result_t;
+
+static scan_result_t g_scan_results[MAX_SCAN_RESULTS];
+static int g_scan_count = 0;
+static bool scan_done = false;
+
+// 扫描完成回调
+static void wifi_scan_done_cb(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data)
+{
+    uint16_t ap_num = 0;
+    esp_wifi_scan_get_ap_num(&ap_num);
+    if (ap_num > MAX_SCAN_RESULTS) ap_num = MAX_SCAN_RESULTS;
+
+    wifi_ap_record_t ap_records[MAX_SCAN_RESULTS];
+    esp_wifi_scan_get_ap_records(&ap_num, ap_records);
+
+    g_scan_count = 0;
+    for (int i = 0; i < ap_num; i++) {
+        bool found = false;
+        for (int j = 0; j < g_scan_count; j++) {
+            if (strcmp((char*)ap_records[i].ssid, g_scan_results[j].ssid) == 0) {
+                found = true;
+                if (ap_records[i].rssi > g_scan_results[j].rssi)
+                    g_scan_results[j].rssi = ap_records[i].rssi;
+                break;
+            }
+        }
+        if (!found) {
+            strncpy(g_scan_results[g_scan_count].ssid, (char*)ap_records[i].ssid, 32);
+            g_scan_results[g_scan_count].ssid[32] = 0;
+            g_scan_results[g_scan_count].rssi = ap_records[i].rssi;
+            g_scan_count++;
+        }
+    }
+    scan_done = true;
+}
+
+// HTTP Handler 返回 JSON
+esp_err_t wifi_scan_handler(httpd_req_t *req)
+{
+    scan_done = false;
+
+    wifi_scan_config_t cfg = {0};
+    esp_wifi_scan_start(&cfg, false); // 异步扫描
+    esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &wifi_scan_done_cb, NULL);
+
+    // 等扫描完成（最长 3 秒）
+    int wait_ms = 0;
+    while (!scan_done && wait_ms < 3000) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+        wait_ms += 100;
+    }
+
+    // 构建 JSON
+    cJSON *root = cJSON_CreateArray();
+    for (int i = 0; i < g_scan_count; i++) {
+        char buf[48];
+        snprintf(buf, sizeof(buf), "%.32s (%ddBm)", g_scan_results[i].ssid, g_scan_results[i].rssi);
+        cJSON_AddItemToArray(root, cJSON_CreateString(buf));
+    }
+
+    const char* json_string = cJSON_PrintUnformatted(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json_string, HTTPD_RESP_USE_STRLEN);
+
+    cJSON_Delete(root);
+    free((void*)json_string);
+
+    return ESP_OK;
 }

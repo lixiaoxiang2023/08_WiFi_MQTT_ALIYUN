@@ -4,7 +4,6 @@
 #include "esp_log.h"
 #include "../../main/APP/wifi_config.h"
 
-
 static const char *TAG = "WEB_WIFI";
 
 /* ---------- GET / ---------- */
@@ -40,3 +39,5 @@ esp_err_t wifi_post_handler(httpd_req_t *req)
     httpd_resp_sendstr(req, "OK, connecting...");
     return ESP_OK;
 }
+
+

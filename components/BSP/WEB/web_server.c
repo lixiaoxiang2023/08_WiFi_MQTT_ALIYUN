@@ -2,6 +2,7 @@
 #include "web_wifi.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
+#include "../../main/APP/wifi_config.h"
 
 static const char *TAG = "WEB_SERVER";
 static httpd_handle_t server = NULL;
@@ -26,12 +27,21 @@ void web_server_start(void)
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_uri_handlers = 8;
+  //  config.stack_size  = 8096;
 
     if (httpd_start(&server, &config) == ESP_OK) {
         httpd_register_uri_handler(server, &uri_root);
         httpd_register_uri_handler(server, &uri_wifi);
         ESP_LOGI(TAG, "Web server started");
     }
+        httpd_uri_t wifi_scan_uri = {
+        .uri      = "/scan",
+        .method   = HTTP_GET,
+        .handler  = wifi_scan_handler,
+        .user_ctx = NULL
+    };
+
+    httpd_register_uri_handler(server, &wifi_scan_uri);
 }
 
 void web_server_stop(void)
