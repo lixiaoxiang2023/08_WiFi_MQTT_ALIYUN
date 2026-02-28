@@ -46,8 +46,37 @@ void web_server_start(void)
         .handler  = save_config_handler,
         .user_ctx = NULL
     };
+    httpd_uri_t connect_wifi_uri = {
+        .uri      = "/connect_wifi",
+        .method   = HTTP_POST,
+        .handler  = connect_wifi_handler,
+        .user_ctx = NULL
+    };
+    httpd_uri_t usb_files_uri = {
+        .uri      = "/usb_files",
+        .method   = HTTP_GET,
+        .handler  = usb_files_handler,
+        .user_ctx = NULL
+    };
+    httpd_uri_t get_config_uri = {
+        .uri = "/get_config",
+        .method = HTTP_GET,
+        .handler = get_config_handler,
+        .user_ctx = NULL
+    };
+    httpd_uri_t wifi_info_uri = {
+        .uri      = "/get_wifi_info",
+        .method   = HTTP_GET,
+        .handler  = get_wifi_info_handler,
+        .user_ctx = NULL
+    };
+
+    httpd_register_uri_handler(server, &wifi_info_uri);
+    httpd_register_uri_handler(server, &get_config_uri);
+    httpd_register_uri_handler(server, &usb_files_uri);
     httpd_register_uri_handler(server, &wifi_scan_uri);  
     httpd_register_uri_handler(server, &save_config_uri);
+    httpd_register_uri_handler(server, &connect_wifi_uri);
 
 }
 

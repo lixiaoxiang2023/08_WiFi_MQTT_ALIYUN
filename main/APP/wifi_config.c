@@ -8,7 +8,9 @@
 #include <string.h>
 #include "lcd.h"
 #include "cJSON.h"
-
+#include <dirent.h>     // ← 必须加这个
+#include <sys/stat.h>   // ← 建议加这个
+#include "lwip_demo.h"
 #ifdef STA_AP_MODE
     #include "web_server.h"
 #endif
@@ -17,7 +19,7 @@ static const char *TAG = "wifi_config";
 static bool s_ap_config_mode = true;   // 🔒 AP 配网页面在线
 static bool s_sta_connecting = false;
 
-static EventGroupHandle_t s_wifi_event_group;
+EventGroupHandle_t s_wifi_event_group;
 static bool s_smartconfig_started = false;
 
 static void smartconfig_task(void *parm);
@@ -61,6 +63,8 @@ static void event_handler(void *arg,
         ESP_LOGI(TAG, "Got IP");
         s_sta_connecting = false;
         xEventGroupSetBits(s_wifi_event_group, WIFI_CFG_CONNECTED_BIT);
+        mqtt_init();  // 或单独写个 mqtt_start()
+
     }
 
     else if (event_base == SC_EVENT) {
@@ -284,7 +288,6 @@ static void wifi_scan_done_cb(void* arg, esp_event_base_t event_base, int32_t ev
     scan_done = true;
 }
 
-// HTTP Handler 返回 JSON
 esp_err_t wifi_scan_handler(httpd_req_t *req)
 {
     scan_done = false;
@@ -293,37 +296,144 @@ esp_err_t wifi_scan_handler(httpd_req_t *req)
     esp_wifi_scan_start(&cfg, false); // 异步扫描
     esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &wifi_scan_done_cb, NULL);
 
-    // 等扫描完成（最长 3 秒）
+    // 等待扫描完成（最多 3 秒）
     int wait_ms = 0;
     while (!scan_done && wait_ms < 3000) {
         vTaskDelay(pdMS_TO_TICKS(100));
         wait_ms += 100;
     }
 
-    // 构建 JSON
-    cJSON *root = cJSON_CreateArray();
-    for (int i = 0; i < g_scan_count; i++) {
-        char buf[48];
-        snprintf(buf, sizeof(buf), "%.32s (%ddBm)", g_scan_results[i].ssid, g_scan_results[i].rssi);
-        cJSON_AddItemToArray(root, cJSON_CreateString(buf));
+    // ===== 按 RSSI 排序（信号强优先）=====
+    for (int i = 0; i < g_scan_count - 1; i++) {
+        for (int j = i + 1; j < g_scan_count; j++) {
+            if (g_scan_results[j].rssi > g_scan_results[i].rssi) {
+                scan_result_t temp = g_scan_results[i];
+                g_scan_results[i] = g_scan_results[j];
+                g_scan_results[j] = temp;
+            }
+        }
     }
 
-    const char* json_string = cJSON_PrintUnformatted(root);
+    // ===== 构建 JSON =====
+    cJSON *root = cJSON_CreateArray();
+
+    for (int i = 0; i < g_scan_count; i++) {
+
+        if (strlen((char*)g_scan_results[i].ssid) == 0)
+            continue;   // 过滤空SSID
+
+        cJSON *item = cJSON_CreateObject();
+        cJSON_AddStringToObject(item, "ssid", (char*)g_scan_results[i].ssid);
+        cJSON_AddNumberToObject(item, "rssi", g_scan_results[i].rssi);
+
+        cJSON_AddItemToArray(root, item);
+    }
+
+    char *json_string = cJSON_PrintUnformatted(root);
+
     httpd_resp_set_type(req, "application/json");
     httpd_resp_send(req, json_string, HTTPD_RESP_USE_STRLEN);
 
     cJSON_Delete(root);
-    free((void*)json_string);
+    free(json_string);
 
     return ESP_OK;
 }
 
-typedef struct {
-    char local_file[64];
-    char upload_server[64];
-} data_config_t;
+esp_err_t connect_wifi_handler(httpd_req_t *req)
+{
+    char buf[256] = {0};
+    int total_len = req->content_len;
+    int cur_len = 0;
+    int received = 0;
+
+    if (total_len >= sizeof(buf)) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Content too long");
+        return ESP_FAIL;
+    }
+
+    // 读取完整 POST 数据
+    while (cur_len < total_len) {
+        received = httpd_req_recv(req, buf + cur_len, total_len - cur_len);
+        if (received <= 0) {
+            return ESP_FAIL;
+        }
+        cur_len += received;
+    }
+
+    buf[total_len] = '\0';
+
+    ESP_LOGI(TAG, "POST DATA: %s", buf);
+
+    // 🔥 解析 JSON
+    cJSON *root = cJSON_Parse(buf);
+    if (!root) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_FAIL;
+    }
+
+    const cJSON *ssid_item = cJSON_GetObjectItem(root, "ssid");
+    const cJSON *pwd_item  = cJSON_GetObjectItem(root, "password");
+
+    if (!cJSON_IsString(ssid_item) || !cJSON_IsString(pwd_item)) {
+        cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid parameters");
+        return ESP_FAIL;
+    }
+
+    const char *ssid = ssid_item->valuestring;
+    const char *password = pwd_item->valuestring;
+
+    ESP_LOGI(TAG, "SSID: %s", ssid);
+    ESP_LOGI(TAG, "Password: %s", password);
+
+    if (strlen(ssid) == 0) {
+        cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "SSID empty");
+        return ESP_FAIL;
+    }
+
+    wifi_apply_config(ssid, password);
+
+    cJSON_Delete(root);
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"status\":\"connecting\"}");
+
+    return ESP_OK;
+}
+
 
 data_config_t g_data_config;
+
+esp_err_t load_data_config(data_config_t *config)
+{
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open("storage", NVS_READONLY, &handle);
+    if (err != ESP_OK) return err;
+
+    size_t required_size = sizeof(data_config_t);
+    err = nvs_get_blob(handle, "data_config", config, &required_size);
+
+    nvs_close(handle);
+    return err;
+}
+
+esp_err_t save_data_config(data_config_t *config)
+{
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open("storage", NVS_READWRITE, &handle);  // "storage" 是命名空间
+    if (err != ESP_OK) return err;
+
+    // 写入结构体
+    err = nvs_set_blob(handle, "data_config", config, sizeof(data_config_t));
+    if (err == ESP_OK) {
+        err = nvs_commit(handle); // 提交写入
+    }
+
+    nvs_close(handle);
+    return err;
+}
 
 esp_err_t save_config_handler(httpd_req_t *req)
 {
@@ -343,8 +453,113 @@ esp_err_t save_config_handler(httpd_req_t *req)
         strncpy(g_data_config.upload_server, server->valuestring, sizeof(g_data_config.upload_server)-1);
     }
     ESP_LOGI(TAG, "local: %s upload_server: %s",g_data_config.local_file,g_data_config.upload_server);
-
+    save_data_config(&g_data_config);
     cJSON_Delete(json);
     httpd_resp_sendstr(req, "OK");
+    return ESP_OK;
+}
+
+esp_err_t usb_files_handler(httpd_req_t *req)
+{
+    DIR *dir;
+    struct dirent *entry;
+
+    cJSON *root = cJSON_CreateArray();
+    ESP_LOGI("USB", "usb_files_handler CALLED");
+    if (!root)
+    {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "JSON create failed");
+        return ESP_FAIL;
+    }
+
+    dir = opendir("/disk");
+    if (dir == NULL)
+    {
+        ESP_LOGE(TAG, "Failed to open /disk");
+        cJSON_Delete(root);
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "[]");
+        return ESP_OK;
+    }
+
+    while ((entry = readdir(dir)) != NULL)
+    {
+        if (strcmp(entry->d_name, ".") == 0 ||
+            strcmp(entry->d_name, "..") == 0 ||
+            strcmp(entry->d_name, "System Volume Information") == 0)
+            continue;
+
+        cJSON_AddItemToArray(root,
+                             cJSON_CreateString(entry->d_name));
+    }
+
+    closedir(dir);
+
+    char *json_string = cJSON_PrintUnformatted(root);
+
+    if (json_string == NULL) {
+        httpd_resp_sendstr(req, "[]");
+        cJSON_Delete(root);
+        return ESP_OK;
+    }
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, json_string);
+
+    cJSON_free(json_string);
+    cJSON_Delete(root);
+
+    return ESP_OK;
+}
+
+esp_err_t get_config_handler(httpd_req_t *req)
+{
+    cJSON *root = cJSON_CreateObject();
+
+    // 从 NVS 读取
+    data_config_t cfg;
+    if(load_data_config(&cfg) != ESP_OK) {
+        strcpy(cfg.local_file, "未设置");
+        strcpy(cfg.upload_server, "");
+    }
+
+    cJSON_AddStringToObject(root, "localFile", cfg.local_file);
+    cJSON_AddStringToObject(root, "uploadServer", cfg.upload_server);
+
+    char *out = cJSON_PrintUnformatted(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, out, strlen(out));
+
+    cJSON_Delete(root);
+    free(out);
+    return ESP_OK;
+}
+
+esp_err_t get_wifi_info_handler(httpd_req_t *req)
+{
+    wifi_config_t wifi_cfg;
+    memset(&wifi_cfg, 0, sizeof(wifi_cfg));
+
+    cJSON *root = cJSON_CreateObject();
+
+    if (esp_wifi_get_config(WIFI_IF_STA, &wifi_cfg) == ESP_OK &&
+        strlen((char *)wifi_cfg.sta.ssid) > 0)
+    {
+        cJSON_AddStringToObject(root, "ssid", (char *)wifi_cfg.sta.ssid);
+        cJSON_AddStringToObject(root, "password", (char *)wifi_cfg.sta.password);
+    }
+    else
+    {
+        cJSON_AddStringToObject(root, "ssid", "");
+        cJSON_AddStringToObject(root, "password", "");
+    }
+
+    char *out = cJSON_PrintUnformatted(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, out, strlen(out));
+
+    cJSON_Delete(root);
+    free(out);
+
     return ESP_OK;
 }

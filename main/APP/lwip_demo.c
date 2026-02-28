@@ -25,6 +25,7 @@
 #include <esp_tls.h>
 #include "xl9555.h"
 #include "tud_flash.h"
+#include "wifi_config.h"
 
 int g_publish_flag = 0;/* 发布成功标志位 */
 static const char *TAG = "MQTT_EXAMPLE";
@@ -500,18 +501,66 @@ static void mqtt_event_handler(void *handler_args,
 }
 
 extern void file_task_worker(void *arg);
+
+typedef enum {
+    WIFI_MODE_WEB_CONFIG,   // APSTA
+    WIFI_MODE_STA_ONLY      // 纯 STA
+} wifi_user_mode_t;
+
+static wifi_user_mode_t g_wifi_user_mode = WIFI_MODE_WEB_CONFIG;
+
+void wifi_switch_mode(void)
+{
+    ESP_LOGI("WIFI", "Switching WiFi mode...");
+
+    // 1️⃣ 先停止 MQTT
+    if (client) {
+        esp_mqtt_client_stop(client);
+        esp_mqtt_client_destroy(client);
+        client = NULL;
+    }
+
+    // 2️⃣ 停止 WiFi
+    esp_wifi_stop();
+
+    if (g_wifi_user_mode == WIFI_MODE_WEB_CONFIG)
+    {
+        // 切到 STA_ONLY
+        ESP_LOGI("WIFI", "Switch to STA ONLY");
+
+        esp_wifi_set_mode(WIFI_MODE_STA);
+        g_wifi_user_mode = WIFI_MODE_STA_ONLY;
+    }
+    else
+    {
+        // 切到 APSTA
+        ESP_LOGI("WIFI", "Switch to APSTA");
+
+        esp_wifi_set_mode(WIFI_MODE_APSTA);
+        g_wifi_user_mode = WIFI_MODE_WEB_CONFIG;
+    }
+
+    // 3️⃣ 重启 WiFi
+    esp_wifi_start();
+
+    // 4️⃣ 如果是 STA_ONLY，则重启 MQTT
+    if (g_wifi_user_mode == WIFI_MODE_STA_ONLY)
+    {
+        esp_wifi_connect();   // ⭐ 必须加
+       // mqtt_init();  // 或单独写个 mqtt_start()
+    }
+}
+
+
 /**
  * @brief       lwip_demo进程
  * @param       无
  * @retval      无
  */
 
-void lwip_demo(void)
+void mqtt_init(void)
 {
-    char mqtt_publish_data[100] = {0};
     char mqtt_uri[256];
-    int iCx = 0;  
-    uint8_t key;
 
     snprintf(mqtt_uri, sizeof(mqtt_uri), "mqtts://%s:%d", HOST_NAME, HOST_PORT);
 
@@ -564,12 +613,17 @@ void lwip_demo(void)
     ESP_LOGI("MEM", "PSRAM free: %d",
     heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
 
- 
     esp_mqtt_client_start(client);
  
+}
+
+void key_scan_task(void *arg)
+{
+    uint8_t key;
+    
     while(1)
     {
-        if (g_publish_flag == 1)
+        //if (g_publish_flag == 1)
         {
             key = xl9555_key_scan(0);
             switch (key)
@@ -577,18 +631,25 @@ void lwip_demo(void)
                 case KEY0_PRES:
                 {
                     printf("KEY0 has been pressed \n");
-
-                    memset(g_strReadLocalFileName,0,sizeof(g_strReadLocalFileName));
-                    strcpy(g_strReadLocalFileName,SPIFFS_FILE_NAME);
-
-                    //xl9555_pin_write(BEEP_IO, 0);
-                    send_json_data_events(client,DEVICE_PUBLISH_EVENT,EVENT_UPLOAD,OBS_LOAD_FILE_NAME);
+                    if(client)
+                    {
+                        memset(g_strReadLocalFileName,0,sizeof(g_strReadLocalFileName));
+                       // strcpy(g_strReadLocalFileName,SPIFFS_FILE_NAME);
+                        strcat(g_strReadLocalFileName, USB_PATH);                
+                        strcat(g_strReadLocalFileName, "/");
+                        strcat(g_strReadLocalFileName, g_data_config.local_file);
+                        send_json_data_events(client,DEVICE_PUBLISH_EVENT,EVENT_UPLOAD,g_data_config.upload_server);
+                    }
                     break;
                 }
                 case KEY1_PRES:
                 {
                     printf("KEY1 has been pressed \n");
-                    send_json_data_events(client,DEVICE_PUBLISH_EVENT,EVENT_DOWNLOAD,OBS_DOWN_FILE_NAME);
+                    
+                    if(client)
+                    {
+                        send_json_data_events(client,DEVICE_PUBLISH_EVENT,EVENT_DOWNLOAD,OBS_DOWN_FILE_NAME);
+                    }
                     //xl9555_pin_write(BEEP_IO, 1);
                     break;
                 }
@@ -600,8 +661,8 @@ void lwip_demo(void)
                 }
                 case KEY3_PRES:
                 {
-                    printf("KEY3 has been pressed \n");
-                    //LED(1);
+                    printf("KEY3 pressed -> Switch WiFi mode\n");
+                    wifi_switch_mode();
                     break;
                 }
                 default:
@@ -615,9 +676,7 @@ void lwip_demo(void)
         
         vTaskDelay(10);
     }
-
 }
-
 
 static void huawei_cmd_send_response(const char *request_id,
                                      int result_code,
@@ -751,9 +810,6 @@ bool huawei_cmd_handle(const char *json)
     cJSON_Delete(root);
     return true;
 }
-
-
-
 
 
 void huawei_ota_event_handler(esp_mqtt_client_handle_t client,

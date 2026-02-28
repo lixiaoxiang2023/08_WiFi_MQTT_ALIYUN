@@ -181,6 +181,7 @@ void file_task_worker(void *arg)
 
             if (info.event_type &&
                 strstr(info.event_type, EVENT_UPLOAD)) {
+                ESP_LOGI(TAG, "info.url: %s g_strReadLocalFileName: %s",info.url,g_strReadLocalFileName);
 
                 obs_http_upload(info.url, g_strReadLocalFileName);
 
@@ -236,6 +237,7 @@ void ota_check_and_confirm(void)
 }
 
 
+
 void app_main(void)
 {
     esp_err_t ret;
@@ -267,6 +269,12 @@ void app_main(void)
     firmware_storage_check(NULL);
     tud_usb_flash();
 
+    if (load_data_config(&g_data_config) == ESP_FAIL) {
+        strcpy(g_data_config.local_file,USB_FILE_NAME);
+        strcpy(g_data_config.upload_server,OBS_DOWN_FILE_NAME);
+    }
+
+
     usb_copy_queue = xQueueCreate(2, sizeof(file_copy_msg_t));
     file_task_queue = xQueueCreate(3, sizeof(char *));
     assert(file_task_queue);
@@ -281,11 +289,13 @@ void app_main(void)
         NULL,
         0
     );
+    xTaskCreate(key_scan_task, "key_scan_task", 4* 1024, NULL, 5, NULL);
 
     wifi_smartconfig_sta();
     wifi_config_wait_connected();
     //web_server_start();
     initialize_sntp_v5();
     
-    lwip_demo();              
+   // mqtt_init();  
+                
 }
