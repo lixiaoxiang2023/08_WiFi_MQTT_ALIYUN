@@ -527,6 +527,8 @@ void wifi_switch_mode(void)
     {
         // 切到 STA_ONLY
         ESP_LOGI("WIFI", "Switch to STA ONLY");
+        lcd_show_string(30, 110, 200, 16, 16, "STA      ", RED);
+        lcd_show_string(30, 130, 200, 16, 16, "                          ", RED);
 
         esp_wifi_set_mode(WIFI_MODE_STA);
         g_wifi_user_mode = WIFI_MODE_STA_ONLY;
@@ -535,6 +537,8 @@ void wifi_switch_mode(void)
     {
         // 切到 APSTA
         ESP_LOGI("WIFI", "Switch to APSTA");
+        lcd_show_string(30, 110, 200, 16, 16, "AP+STA", RED);
+        lcd_show_string(30, 130, 200, 16, 16, "Web service:192.168.4.1", RED);
 
         esp_wifi_set_mode(WIFI_MODE_APSTA);
         web_prov_start();

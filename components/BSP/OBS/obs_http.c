@@ -17,7 +17,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
-
+#include "lcd.h"
 #define OBS_TAG "OBS_HTTP"
 #define OBS_MAX_RETRY 3
 #define OBS_RX_BUF   (4* 1024)
@@ -235,6 +235,7 @@ esp_err_t obs_http_download(const char *url, const char *local_path)
          g_state.retry_count++) {
 
         ESP_LOGI(OBS_TAG, "Download try %d", g_state.retry_count + 1);
+        lcd_show_string(30, 150, 200, 16, 16, " Downloading             ", RED);
         /* =================== 这里加 Header =================== */
 
         // 常规头
@@ -243,6 +244,7 @@ esp_err_t obs_http_download(const char *url, const char *local_path)
         esp_err_t err = esp_http_client_perform(client);
         if (err == ESP_OK && g_state.success) {
             ESP_LOGI(OBS_TAG, "Download OK");
+            lcd_show_string(30, 150, 200, 16, 16, " Download OK                ", RED);
             esp_http_client_cleanup(client);
             return ESP_OK;
         }
@@ -321,9 +323,12 @@ esp_err_t obs_http_upload(const char *url, const char *local_path)
 
         total_sent += w;
         ESP_LOGI(OBS_TAG, "Progress: %d / %ld", total_sent, file_size);
+        lcd_show_string(30, 150, 200, 16, 16, " Uploading        ", RED);
+
     }
 
     ESP_LOGI(OBS_TAG, "Upload finished %d/%ld", total_sent, file_size);
+    lcd_show_string(30, 150, 200, 16, 16, " Upload finished", RED);
 
     esp_http_client_fetch_headers(client);
 

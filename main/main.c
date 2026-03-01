@@ -236,7 +236,16 @@ void ota_check_and_confirm(void)
     }
 }
 
+void wifi_background_task(void *pv)
+{
+    ESP_LOGI("WIFI", "WiFi background start");
 
+    wifi_smartconfig_sta();
+    wifi_config_wait_connected();
+    initialize_sntp_v5();
+
+    vTaskDelete(NULL);
+}
 
 void app_main(void)
 {
@@ -249,11 +258,16 @@ void app_main(void)
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
     {
         ESP_ERROR_CHECK(nvs_flash_erase());
-        ret = nvs_flash_init();
+        ESP_ERROR_CHECK(nvs_flash_init());
     }
-    
+
+    /* ================= OTA ================= */    
     ota_read_success_flag();
     ota_check_and_confirm();
+
+    /* ================= 打印系统内存 ================= */
+    ESP_LOGI("MAIN", "Free heap: %d",
+             (int)esp_get_free_heap_size());
 
     led_init();
     i2c0_master = iic_init(I2C_NUM_0);
@@ -265,9 +279,12 @@ void app_main(void)
     lcd_show_string(30, 50, 200, 16, 16, logo_str, RED);
     //lcd_show_string(30, 70, 200, 16, 16, "SD TEST", RED);
     //lcd_show_string(30, 90, 200, 16, 16, "ATOM@ALIENTEK", RED);
+    lcd_show_string(30, 110, 200, 16, 16, "STA      ", RED);
+    lcd_show_string(30, 130, 200, 16, 16, "                          ", RED);
+
     ESP_LOGI("MAIN", "soft version: %s",FW_VERSION);
-    firmware_storage_check(NULL);
     tud_usb_flash();
+    firmware_storage_check(NULL);
 
     if (load_data_config(&g_data_config) == ESP_FAIL) {
         strcpy(g_data_config.local_file,USB_FILE_NAME);
@@ -279,7 +296,17 @@ void app_main(void)
     file_task_queue = xQueueCreate(3, sizeof(char *));
     assert(file_task_queue);
 
-    xTaskCreate(file_task_worker, "file_task_worker", 6 * 1024, NULL, 5, NULL);
+    /* ================= 本地任务 ================= */
+    xTaskCreatePinnedToCore(
+        file_task_worker,
+        "file_task_worker",
+        12* 1024,
+        NULL,
+        5,
+        NULL,
+        1
+    );
+
     xTaskCreatePinnedToCore(
         usb_copy_task,
         "usb_copy",
@@ -290,8 +317,22 @@ void app_main(void)
         0
     );
     xTaskCreate(key_scan_task, "key_scan_task", 4* 1024, NULL, 5, NULL);
+   
+    ESP_LOGI("MAIN", "Local system ready. Free heap: %d",
+             (int)esp_get_free_heap_size());
 
-    wifi_smartconfig_sta();
-    wifi_config_wait_connected();
-    initialize_sntp_v5();
+    /* ================= WiFi后台任务 ================= */
+    xTaskCreate(
+        wifi_background_task,
+        "wifi_bg",
+        4096,
+        NULL,
+        3,
+        NULL
+    );
+    vTaskDelete(NULL);
+
+    // wifi_smartconfig_sta();
+    // wifi_config_wait_connected();
+    // initialize_sntp_v5();
 }

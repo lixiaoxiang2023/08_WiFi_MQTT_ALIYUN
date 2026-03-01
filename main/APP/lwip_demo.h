@@ -98,6 +98,9 @@ typedef struct {
 extern QueueHandle_t file_task_queue;
 extern char g_strReadLocalFileName[64];
 extern char g_strWriteLocalFileName[64];//SPIFFS 写文件名
+extern esp_mqtt_client_handle_t client;
+
+
 /* ================= 华为云命令处理接口 ================= */
 /* MQTT_EVENT_CONNECTED 后调用 */
 void huawei_cmd_init(esp_mqtt_client_handle_t client);

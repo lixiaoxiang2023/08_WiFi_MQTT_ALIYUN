@@ -64,20 +64,20 @@ void web_prov_start(void)
 
     s_prov_mode = WIFI_PROV_WEB;
     s_ap_config_mode = true;
-    // wifi_config_t ap_cfg = {
-    //     .ap = {
-    //         .ssid = "ESP32_Config",
-    //         .password = "12345678",
-    //         .channel = 1,      // 🔥 必须固定
-    //         .max_connection = 4,
-    //         .authmode = WIFI_AUTH_WPA2_PSK
-    //     }
-    // };
+    wifi_config_t ap_cfg = {
+        .ap = {
+            .ssid = "ESP32_Config",
+            .password = "12345678",
+            .channel = 1,      // 🔥 必须固定
+            .max_connection = 4,
+            .authmode = WIFI_AUTH_WPA2_PSK
+        }
+    };
 
 
-    // /* ---------- STA 模式 ---------- */
-    // ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
-    // ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
+    /* ---------- STA 模式 ---------- */
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
 #ifdef STA_AP_MODE
     web_server_start();
 #endif
@@ -221,21 +221,21 @@ esp_err_t wifi_smartconfig_sta(void)
     ESP_ERROR_CHECK(esp_event_handler_register(SC_EVENT, ESP_EVENT_ANY_ID, event_handler, NULL));
 #ifdef STA_AP_MODE
     /* ---------- AP 配置 ---------- */
-    wifi_config_t ap_cfg = {
-        .ap = {
-            .ssid = "ESP32_Config",
-            .password = "12345678",
-            .channel = 1,      // 🔥 必须固定
-            .max_connection = 4,
-            .authmode = WIFI_AUTH_WPA2_PSK
-        }
-    };
+//     wifi_config_t ap_cfg = {
+//         .ap = {
+//             .ssid = "ESP32_Config",
+//             .password = "12345678",
+//             .channel = 1,      // 🔥 必须固定
+//             .max_connection = 4,
+//             .authmode = WIFI_AUTH_WPA2_PSK
+//         }
+//     };
 
 
-    /* ---------- STA 模式 ---------- */
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
-#else
+//     /* ---------- STA 模式 ---------- */
+//     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
+//     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
+// #else
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
 #endif
     /* ---------- 启动 WiFi ---------- */
