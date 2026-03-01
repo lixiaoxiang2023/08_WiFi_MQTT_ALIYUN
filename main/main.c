@@ -293,9 +293,5 @@ void app_main(void)
 
     wifi_smartconfig_sta();
     wifi_config_wait_connected();
-    //web_server_start();
     initialize_sntp_v5();
-    
-   // mqtt_init();  
-                
 }

@@ -507,7 +507,7 @@ typedef enum {
     WIFI_MODE_STA_ONLY      // 纯 STA
 } wifi_user_mode_t;
 
-static wifi_user_mode_t g_wifi_user_mode = WIFI_MODE_WEB_CONFIG;
+static wifi_user_mode_t g_wifi_user_mode = WIFI_MODE_STA_ONLY;
 
 void wifi_switch_mode(void)
 {
@@ -537,6 +537,7 @@ void wifi_switch_mode(void)
         ESP_LOGI("WIFI", "Switch to APSTA");
 
         esp_wifi_set_mode(WIFI_MODE_APSTA);
+        web_prov_start();
         g_wifi_user_mode = WIFI_MODE_WEB_CONFIG;
     }
 

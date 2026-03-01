@@ -19,15 +19,81 @@ static const char *TAG = "wifi_config";
 static bool s_ap_config_mode = true;   // 🔒 AP 配网页面在线
 static bool s_sta_connecting = false;
 
+typedef enum {
+    WIFI_PROV_NONE = 0,
+    WIFI_PROV_SMARTCONFIG,
+    WIFI_PROV_WEB
+} wifi_prov_mode_t;
+
+static wifi_prov_mode_t s_prov_mode = WIFI_PROV_NONE;
+
 EventGroupHandle_t s_wifi_event_group;
 static bool s_smartconfig_started = false;
-
+static void smartconfig_start(void);
 static void smartconfig_task(void *parm);
+void web_prov_start(void);
+static void smartconfig_stop(void);
 static void event_handler(void *arg,
                           esp_event_base_t event_base,
                           int32_t event_id,
                           void *event_data);
 
+static void smartconfig_start(void)
+{
+    if (s_prov_mode == WIFI_PROV_SMARTCONFIG) {
+        ESP_LOGW(TAG, "SmartConfig already running");
+        return;
+    }
+
+    ESP_LOGI(TAG, "Start SmartConfig");
+
+    s_prov_mode = WIFI_PROV_SMARTCONFIG;
+    s_smartconfig_started = true;
+
+    ESP_ERROR_CHECK(esp_smartconfig_set_type(SC_TYPE_ESPTOUCH));
+    smartconfig_start_config_t cfg = SMARTCONFIG_START_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_smartconfig_start(&cfg));
+}
+
+void web_prov_start(void)
+{
+    ESP_LOGI(TAG, "Switch to WEB Provisioning");
+
+    // 🔥 先停止 SmartConfig
+    smartconfig_stop();
+
+    s_prov_mode = WIFI_PROV_WEB;
+    s_ap_config_mode = true;
+    // wifi_config_t ap_cfg = {
+    //     .ap = {
+    //         .ssid = "ESP32_Config",
+    //         .password = "12345678",
+    //         .channel = 1,      // 🔥 必须固定
+    //         .max_connection = 4,
+    //         .authmode = WIFI_AUTH_WPA2_PSK
+    //     }
+    // };
+
+
+    // /* ---------- STA 模式 ---------- */
+    // ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
+    // ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
+#ifdef STA_AP_MODE
+    web_server_start();
+#endif
+}
+
+static void smartconfig_stop(void)
+{
+    if (s_prov_mode != WIFI_PROV_SMARTCONFIG)
+        return;
+
+    ESP_LOGI(TAG, "Stop SmartConfig");
+
+    esp_smartconfig_stop();
+    s_smartconfig_started = false;
+    s_prov_mode = WIFI_PROV_NONE;
+}
 /* ================= 事件处理 ================= */
 static void event_handler(void *arg,
                           esp_event_base_t event_base,
@@ -61,10 +127,13 @@ static void event_handler(void *arg,
 
     else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ESP_LOGI(TAG, "Got IP");
+        smartconfig_stop();     
         s_sta_connecting = false;
         xEventGroupSetBits(s_wifi_event_group, WIFI_CFG_CONNECTED_BIT);
+        ESP_LOGI("MEM", "Free heap: %d", (int)esp_get_free_heap_size());
+        ESP_LOGI("MEM", "Min free heap: %d", (int)esp_get_minimum_free_heap_size());
+        ESP_LOGI("MEM", "Largest free block: %d", (int)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
         mqtt_init();  // 或单独写个 mqtt_start()
-
     }
 
     else if (event_base == SC_EVENT) {
@@ -118,8 +187,7 @@ esp_err_t wifi_apply_config(const char *ssid, const char *password)
 
     return err;
 }
-
-
+#define WIFI_CONNECT_TIMEOUT_MS 8000   // 8秒超时
 
 /* ================= WiFi 启动入口（AP + STA） ================= */
 esp_err_t wifi_smartconfig_sta(void)
@@ -168,7 +236,7 @@ esp_err_t wifi_smartconfig_sta(void)
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
 #else
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
 #endif
     /* ---------- 启动 WiFi ---------- */
     ESP_ERROR_CHECK(esp_wifi_start());
@@ -178,17 +246,39 @@ esp_err_t wifi_smartconfig_sta(void)
     ret = esp_wifi_get_config(WIFI_IF_STA, &wifi_cfg);
 
     if (ret == ESP_OK && strlen((char *)wifi_cfg.sta.ssid) > 0) {
+
         ESP_LOGI(TAG, "Found saved WiFi: %s", wifi_cfg.sta.ssid);
+
+        s_prov_mode = WIFI_PROV_NONE;
+
         esp_wifi_connect();
 
-        char ssid_str[64] = {0};
-        snprintf(ssid_str, sizeof(ssid_str), "SSID: %s", wifi_cfg.sta.ssid);
-        lcd_show_string(30, 70, 200, 16, 16, ssid_str, RED);
+        // 🔥 等待连接成功或超时
+        EventBits_t bits = xEventGroupWaitBits(
+            s_wifi_event_group,
+            WIFI_CFG_CONNECTED_BIT,
+            pdFALSE,
+            pdTRUE,
+            pdMS_TO_TICKS(WIFI_CONNECT_TIMEOUT_MS)
+        );
 
-    } else {
-        ESP_LOGW(TAG, "No WiFi config, start SmartConfig");
-        lcd_show_string(30, 70, 200, 16, 16, "AP Config Mode", RED);
-        xTaskCreate(smartconfig_task, "smartconfig_task", 4096, NULL, 3, NULL);
+        if (bits & WIFI_CFG_CONNECTED_BIT) {
+
+            ESP_LOGI(TAG, "WiFi connect success");
+
+            char ssid_str[64] = {0};
+            snprintf(ssid_str, sizeof(ssid_str), "SSID: %s", wifi_cfg.sta.ssid);
+            lcd_show_string(30, 70, 200, 16, 16, ssid_str, RED);
+
+        } else {
+
+            ESP_LOGW(TAG, "WiFi connect failed, start SmartConfig");
+
+            lcd_show_string(30, 70, 200, 16, 16, "SmartConfig Mode", RED);
+
+            s_prov_mode = WIFI_PROV_SMARTCONFIG;
+            xTaskCreate(smartconfig_task, "smartconfig_task", 4096, NULL, 3, NULL);
+        }
     }
 
     return ESP_OK;
@@ -224,7 +314,8 @@ static void smartconfig_task(void *parm)
 
     ESP_ERROR_CHECK(esp_smartconfig_set_type(SC_TYPE_ESPTOUCH));
     smartconfig_start_config_t cfg = SMARTCONFIG_START_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_smartconfig_start(&cfg));
+    //ESP_ERROR_CHECK(esp_smartconfig_start(&cfg));
+    smartconfig_start();
 
     while (1) {
         EventBits_t bits = xEventGroupWaitBits(
@@ -237,6 +328,9 @@ static void smartconfig_task(void *parm)
 
         if (bits & WIFI_CFG_CONNECTED_BIT) {
             ESP_LOGI(TAG, "WiFi Connected");
+            esp_smartconfig_stop();
+            s_smartconfig_started = false;
+            vTaskDelete(NULL);
         }
 
         if (bits & WIFI_CFG_SC_DONE_BIT) {

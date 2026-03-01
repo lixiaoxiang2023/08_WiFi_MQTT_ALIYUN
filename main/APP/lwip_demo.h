@@ -80,7 +80,7 @@
 #define SPIFFS_FILE_NAME    "/spiffs/123.txt"//写入读取 SPIFFS 文件名称
 #define USB_FILE_NAME    "/disk/123.txt"//写入读取 SPIFFS 文件名称
 #define OBS_LOAD_FILE_NAME    "23.txt"//OBS 上传文件名称
-#define OBS_DOWN_FILE_NAME    "123.txt"//OBS 下载文件名称
+#define OBS_DOWN_FILE_NAME    "EMA1.bin"//OBS 下载文件名称
 //#define OBS_ENDPOINT      "obs.cn-south-1.myhuaweicloud.com"
 //#define OBS_BUCKET_NAME   "lixx"
 //#define OBS_ACCESS_KEY    "HPUAUYPWHPS6Y6FKQSOM"

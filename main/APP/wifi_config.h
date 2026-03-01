@@ -53,4 +53,5 @@ esp_err_t save_data_config(data_config_t *config);
 esp_err_t load_data_config(data_config_t *config);
 esp_err_t get_config_handler(httpd_req_t *req);
 esp_err_t get_wifi_info_handler(httpd_req_t *req);
+void web_prov_start(void);
 #endif
