@@ -300,7 +300,7 @@ void app_main(void)
     xTaskCreatePinnedToCore(
         file_task_worker,
         "file_task_worker",
-        12* 1024,
+        6* 1024,
         NULL,
         5,
         NULL,
@@ -330,7 +330,7 @@ void app_main(void)
         3,
         NULL
     );
-    vTaskDelete(NULL);
+    //vTaskDelete(NULL);
 
     // wifi_smartconfig_sta();
     // wifi_config_wait_connected();
