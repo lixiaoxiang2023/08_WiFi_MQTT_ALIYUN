@@ -127,7 +127,7 @@ static void event_handler(void *arg,
 
     else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ESP_LOGI(TAG, "Got IP");
-        smartconfig_stop();     
+      //  smartconfig_stop();     
         s_sta_connecting = false;
         xEventGroupSetBits(s_wifi_event_group, WIFI_CFG_CONNECTED_BIT);
         ESP_LOGI("MEM", "Free heap: %d", (int)esp_get_free_heap_size());
@@ -156,6 +156,7 @@ static void event_handler(void *arg,
         case SC_EVENT_SEND_ACK_DONE:
             ESP_LOGI(TAG, "SmartConfig Done");
             xEventGroupSetBits(s_wifi_event_group, WIFI_CFG_SC_DONE_BIT);
+            smartconfig_stop();     
             break;
 
         default:
@@ -219,7 +220,7 @@ esp_err_t wifi_smartconfig_sta(void)
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(SC_EVENT, ESP_EVENT_ANY_ID, event_handler, NULL));
-#ifdef STA_AP_MODE
+//#ifdef STA_AP_MODE
     /* ---------- AP 配置 ---------- */
 //     wifi_config_t ap_cfg = {
 //         .ap = {
@@ -237,7 +238,7 @@ esp_err_t wifi_smartconfig_sta(void)
 //     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
 // #else
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-#endif
+//#endif
     /* ---------- 启动 WiFi ---------- */
     ESP_ERROR_CHECK(esp_wifi_start());
 
@@ -276,7 +277,7 @@ esp_err_t wifi_smartconfig_sta(void)
 
             lcd_show_string(30, 70, 200, 16, 16, "SmartConfig Mode", RED);
 
-            s_prov_mode = WIFI_PROV_SMARTCONFIG;
+           // s_prov_mode = WIFI_PROV_SMARTCONFIG;
             xTaskCreate(smartconfig_task, "smartconfig_task", 4096, NULL, 3, NULL);
         }
     }
@@ -328,9 +329,9 @@ static void smartconfig_task(void *parm)
 
         if (bits & WIFI_CFG_CONNECTED_BIT) {
             ESP_LOGI(TAG, "WiFi Connected");
-            esp_smartconfig_stop();
-            s_smartconfig_started = false;
-            vTaskDelete(NULL);
+           // esp_smartconfig_stop();
+            // s_smartconfig_started = false;
+            // vTaskDelete(NULL);
         }
 
         if (bits & WIFI_CFG_SC_DONE_BIT) {
