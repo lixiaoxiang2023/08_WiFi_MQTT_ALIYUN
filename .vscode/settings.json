@@ -34,9 +34,10 @@
     "esp_log.h": "c"
 },
 "idf.openOcdConfigs": [
-    "board/esp32s3-builtin.cfg"
+    "interface/ftdi/esp32_devkitj_v1.cfg",
+    "target/esp32s3.cfg"
 ],
 "idf.flashType": "UART",
-"idf.portWin": "COM12",
-"idf.currentSetup": "D:/setup/Espressif/frameworks/esp-idf-v5.3.1/"
+"idf.portWin": "COM6",
+"idf.currentSetup": "C:/Espressif/frameworks/esp-idf-v5.1.3/"
 }

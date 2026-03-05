@@ -33,7 +33,7 @@
 #include "esp_sntp.h"
 #include "esp_netif_sntp.h"
 #include "spi_sdcard.h"
-#include "storage_manager.h"
+//#include "storage_manager.h"
 #include "firmware_storage.h"
 #include "json_processor.h"
 #include "tud_flash.h"
@@ -327,7 +327,7 @@ void app_main(void)
         "wifi_bg",
         4096,
         NULL,
-        3,
+        5,
         NULL
     );
     //vTaskDelete(NULL);

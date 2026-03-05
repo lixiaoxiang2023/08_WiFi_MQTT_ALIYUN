@@ -21,29 +21,6 @@ static const char *LIB_VERSION = "1.0.0";
 // 默认配置
 static const firmware_storage_config_t s_default_config = FIRMWARE_STORAGE_DEFAULT_CONFIG();
 
-static esp_err_t _compute_sha256(const char *path, uint8_t *output) {
-    FILE *file = fopen(path, "rb");
-    if (!file) return ESP_FAIL;
-    
-    mbedtls_md_context_t ctx;
-    mbedtls_md_init(&ctx);
-    mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 0);
-    mbedtls_md_starts(&ctx);
-    
-    uint8_t buffer[1024];
-    size_t bytes_read;
-    
-    while ((bytes_read = fread(buffer, 1, sizeof(buffer), file)) > 0) {
-        mbedtls_md_update(&ctx, buffer, bytes_read);
-    }
-    
-    mbedtls_md_finish(&ctx, output);
-    mbedtls_md_free(&ctx);
-    fclose(file);
-    
-    return ESP_OK;
-}
-
 // 公共API实现
 esp_err_t firmware_storage_init(const firmware_storage_config_t *config) {
     if (s_ctx.initialized) {
@@ -444,44 +421,6 @@ esp_err_t firmware_storage_get_stats(firmware_storage_stats_t *stats) {
 const char *firmware_storage_get_version(void) {
     return LIB_VERSION;
 }
-
-esp_err_t spiffs_format_and_remount(void)
-{
-    esp_err_t ret;
-
-    /* 1. 先卸载（如果没挂载，返回 ESP_ERR_INVALID_STATE，可以忽略） */
-    ret = esp_vfs_spiffs_unregister(NULL);
-    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
-        ESP_LOGE(TAG, "SPIFFS unregister failed: %s", esp_err_to_name(ret));
-        return ret;
-    }
-
-    /* 2. 格式化 SPIFFS */
-    ESP_LOGW(TAG, "Formatting SPIFFS...");
-    ret = esp_spiffs_format(NULL);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "SPIFFS format failed: %s", esp_err_to_name(ret));
-        return ret;
-    }
-
-    /* 3. 重新挂载 SPIFFS */
-    esp_vfs_spiffs_conf_t conf = {
-        .base_path = "/spiffs",
-        .partition_label = NULL,
-        .max_files = 5,
-        .format_if_mount_failed = false,
-    };
-
-    ret = esp_vfs_spiffs_register(&conf);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "SPIFFS mount failed after format: %s", esp_err_to_name(ret));
-        return ret;
-    }
-
-    ESP_LOGI(TAG, "SPIFFS formatted and mounted successfully");
-    return ESP_OK;
-}
-
 
 void firmware_storage_check(const firmware_storage_config_t *config)
 {

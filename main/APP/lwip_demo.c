@@ -690,10 +690,14 @@ static void huawei_cmd_send_response(const char *request_id,
     char topic[128];
     char payload[256];
 
-    snprintf(topic, sizeof(topic),
-             "$oc/devices/%s/sys/commands/response/request_id=%s",
-             DEVICE_ID,
-             request_id);
+    int n = snprintf(topic, sizeof(topic),
+                    "$oc/devices/%s/sys/commands/response/request_id=%s",
+                    DEVICE_ID,
+                    request_id);
+
+    if (n >= sizeof(topic)) {
+        printf("Warning: topic truncated\n");
+    }
 
     snprintf(payload, sizeof(payload),
              "{"

@@ -1,6 +1,5 @@
 set(src_dirs
             IIC
-            SPIFFS
             LCD
             LED
             SPI
@@ -13,7 +12,6 @@ set(src_dirs
 
 set(include_dirs
             IIC
-            SPIFFS
             FIRMWARE_STORAGE    
             FIRMWARE_STORAGE/include
             LCD
@@ -32,6 +30,7 @@ set(requires
             spiffs
             nvs_flash
             mbedtls
+            vfs            
             app_update
             esp_https_ota
             esp_http_client
