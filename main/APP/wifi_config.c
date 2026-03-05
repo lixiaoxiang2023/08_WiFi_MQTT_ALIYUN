@@ -122,7 +122,7 @@ static void event_handler(void *arg,
                 esp_wifi_connect();
             } else {
                 ESP_LOGW(TAG, "Exceeded max retries, will start SmartConfig");
-                xEventGroupSetBits(s_wifi_event_group, WIFI_CFG_CONNECTED_BIT); // 触发主任务启动 SmartConfig
+              //  xEventGroupSetBits(s_wifi_event_group, WIFI_CFG_CONNECTED_BIT); // 触发主任务启动 SmartConfig
             }
             break;
 
