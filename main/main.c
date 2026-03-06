@@ -26,7 +26,7 @@
 #include "led.h"
 #include "lcd.h"
 #include "wifi_config.h"
-#include "lwip_demo.h"
+#include "lwip_mqtt.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
@@ -39,11 +39,22 @@
 #include "tud_flash.h"
 #include "huawei_ota.h"
 #include "esp_ota_ops.h"
-//#include "web_server.h"
-
-
+#include "esp_heap_caps.h"
+#include "key_scan.h"
+#include "mqtt_client.h"
 static const char *TAG = "MAIN";
 i2c_obj_t i2c0_master;
+
+void print_mem_info(const char *tag)
+{
+    ESP_LOGI(tag,
+        "free heap: %d | min heap: %d | internal: %d | dma: %d | largest internal: %d",
+        heap_caps_get_free_size(MALLOC_CAP_8BIT),
+        heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT),
+        heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+        heap_caps_get_free_size(MALLOC_CAP_DMA),
+        heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+}
 
 void print_current_time(void) {
     time_t now;
@@ -247,6 +258,18 @@ void wifi_background_task(void *pv)
     vTaskDelete(NULL);
 }
 
+void mem_monitor_task(void *arg)
+{
+    while (1)
+    {
+        print_mem_info("MEM_MON");
+        ESP_LOGI("MEM_MON",
+            "PSRAM free: %d",
+            heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+        vTaskDelay(pdMS_TO_TICKS(5000));
+    }
+}
+
 void app_main(void)
 {
     esp_err_t ret;
@@ -266,9 +289,6 @@ void app_main(void)
     ota_check_and_confirm();
 
     /* ================= 打印系统内存 ================= */
-    ESP_LOGI("MAIN", "Free heap: %d",
-             (int)esp_get_free_heap_size());
-
     led_init();
     i2c0_master = iic_init(I2C_NUM_0);
     spi2_init();
@@ -297,6 +317,7 @@ void app_main(void)
     assert(file_task_queue);
 
     /* ================= 本地任务 ================= */
+    xTaskCreate(mem_monitor_task, "mem_mon", 4096, NULL, 5, NULL);
     xTaskCreatePinnedToCore(
         file_task_worker,
         "file_task_worker",
@@ -330,9 +351,4 @@ void app_main(void)
         5,
         NULL
     );
-    //vTaskDelete(NULL);
-
-    // wifi_smartconfig_sta();
-    // wifi_config_wait_connected();
-    // initialize_sntp_v5();
 }

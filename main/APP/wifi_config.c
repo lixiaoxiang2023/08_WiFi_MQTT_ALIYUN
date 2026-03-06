@@ -10,10 +10,9 @@
 #include "cJSON.h"
 #include <dirent.h>     // ← 必须加这个
 #include <sys/stat.h>   // ← 建议加这个
-#include "lwip_demo.h"
-#ifdef STA_AP_MODE
-    #include "web_server.h"
-#endif
+#include "lwip_mqtt.h"
+#include "web_server.h"
+
 #define WIFI_CONNECT_TIMEOUT_MS 8000   // 8秒超时
 #define WIFI_CONNECT_RETRY_MAX 3        // STA 最大重试次数
 static int s_retry_count = 0;  // STA 重试计数
@@ -136,9 +135,6 @@ static void event_handler(void *arg,
         s_sta_connecting = false;
         s_retry_count = 0;
         xEventGroupSetBits(s_wifi_event_group, WIFI_CFG_CONNECTED_BIT);
-        ESP_LOGI("MEM", "Free heap: %d", (int)esp_get_free_heap_size());
-        ESP_LOGI("MEM", "Min free heap: %d", (int)esp_get_minimum_free_heap_size());
-        ESP_LOGI("MEM", "Largest free block: %d", (int)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
         mqtt_init();  // 或单独写个 mqtt_start()
     }
     else if (event_base == SC_EVENT) {

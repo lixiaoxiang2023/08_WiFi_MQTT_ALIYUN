@@ -107,10 +107,9 @@ void huawei_cmd_init(esp_mqtt_client_handle_t client);
 
 /* MQTT_EVENT_DATA 中调用（仅喂 Topic） */
 void huawei_cmd_feed_topic(const char *topic, int topic_len);
-
+void send_json_data_events(esp_mqtt_client_handle_t client,const char *topic,const char *even_type, char* aData);
 /* worker 线程中调用，返回 true 表示已处理 */
 bool huawei_cmd_handle(const char *json);
 void mqtt_cmd_handler(const char *json);
 void mqtt_init(void);
-void key_scan_task(void *arg);
 #endif

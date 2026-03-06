@@ -39,5 +39,3 @@ esp_err_t wifi_post_handler(httpd_req_t *req)
     httpd_resp_sendstr(req, "OK, connecting...");
     return ESP_OK;
 }
-
-
