@@ -13,7 +13,7 @@ esp_err_t huawei_ota_start(const char *url);
 void huawei_ota_report_success(void);
 void ota_read_success_flag(void);
 void ota_clear_success_flag(void);
-
+void ota_check_and_confirm(void);
 extern bool ota_upgrade_flag_from_nvs;
 #ifdef __cplusplus
 }

@@ -19,7 +19,7 @@
  */
 
 #include "tud_flash.h"
-
+#include "file_worker.h"
 static const char *TAG = "usb_msc";
 const char *disk_path = "/disk";                /* 磁盘的路径 */
 static uint8_t s_pdrv = 0;                      /* 用于识别驱动器的物理驱动器 */
@@ -434,4 +434,57 @@ void tud_usb_flash(void)
     /* USB设备登记 */
     ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
     ESP_LOGI(TAG, "USB MSC initialization DONE");
+}
+
+
+
+void usb_copy_task(void *arg)
+{
+    file_copy_msg_t msg;
+
+    usb_copy_queue = xQueueCreate(2, sizeof(file_copy_msg_t));
+
+    while (1) {
+        if (xQueueReceive(usb_copy_queue, &msg, portMAX_DELAY)) {
+
+            ESP_LOGI("USB", "copy %s -> %s", msg.src, msg.dst);
+
+            FILE *src = fopen(msg.src, "rb");
+            if (!src) {
+                ESP_LOGE("USB", "open src failed");
+                continue;
+            }
+
+            FILE *dst = fopen(msg.dst, "wb");
+            if (!dst) {
+                ESP_LOGE("USB", "open dst failed");
+                fclose(src);
+                continue;
+            }
+
+            uint8_t buf[1024];
+            size_t len;
+
+            while ((len = fread(buf, 1, sizeof(buf), src)) > 0) {
+                if (fwrite(buf, 1, len, dst) != len) {
+                    ESP_LOGE("USB", "write failed");
+                    break;
+                }
+                vTaskDelay(1); // 喂狗 + 让 USB 跑
+            }
+
+            fflush(dst);
+            fclose(dst);
+            fclose(src);
+
+            ESP_LOGI("USB", "copy done");
+
+            /* ========= 核心：强制主机重新识别 ========= */
+            ESP_LOGW("USB", "re-enumerate USB MSC");
+
+            tud_disconnect();
+            vTaskDelay(pdMS_TO_TICKS(800));
+            tud_connect();
+        }
+    }
 }

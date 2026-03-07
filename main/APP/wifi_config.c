@@ -12,6 +12,7 @@
 #include <sys/stat.h>   // ← 建议加这个
 #include "lwip_mqtt.h"
 #include "web_server.h"
+#include "esp_netif_sntp.h"
 
 #define WIFI_CONNECT_TIMEOUT_MS 8000   // 8秒超时
 #define WIFI_CONNECT_RETRY_MAX 3        // STA 最大重试次数
@@ -79,9 +80,7 @@ void web_prov_start(void)
     /* ---------- STA 模式 ---------- */
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
-#ifdef STA_AP_MODE
     web_server_start();
-#endif
 }
 
 static void smartconfig_stop(void)
@@ -107,9 +106,7 @@ static void event_handler(void *arg,
 
         case WIFI_EVENT_STA_START:
             ESP_LOGI(TAG, "WIFI_EVENT_STA_START");
-#ifdef STA_AP_MODE
             web_server_start();
-#endif
             break;
 
         case WIFI_EVENT_STA_DISCONNECTED:
@@ -652,4 +649,57 @@ esp_err_t get_wifi_info_handler(httpd_req_t *req)
     free(out);
 
     return ESP_OK;
+}
+
+void print_current_time(void) {
+    time_t now;
+    struct tm timeinfo;
+    time(&now);
+    localtime_r(&now, &timeinfo);
+
+    char strftime_buf[64];
+    strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
+    ESP_LOGI(TAG, "Current time: %s", strftime_buf);
+}
+
+void initialize_sntp_v5(void) {
+    ESP_LOGI(TAG, "Using ESP-IDF v5.0+ SNTP API");
+    
+    // 设置时区
+    setenv("TZ", "CST-8", 1);
+    tzset();
+    
+    // 使用新的 API
+    esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG_MULTIPLE(
+        3,  // 服务器数量
+        ESP_SNTP_SERVER_LIST("pool.ntp.org", "time1.cloud.tencent.com", "ntp.aliyun.com")
+    );
+    
+    config.start = true;
+    config.server_from_dhcp = false;
+    config.renew_servers_after_new_IP = true;
+    config.index_of_first_server = 0;
+    config.ip_event_to_renew = IP_EVENT_STA_GOT_IP;
+    
+    esp_netif_sntp_init(&config);
+    
+    // 等待同步
+    if (esp_netif_sntp_sync_wait(pdMS_TO_TICKS(30000)) != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to synchronize time within 30s");
+    } else {
+        ESP_LOGI(TAG, "Time synchronized successfully");
+        print_current_time();
+    }
+}
+
+
+void wifi_background_task(void *pv)
+{
+    ESP_LOGI("WIFI", "WiFi background start");
+
+    wifi_smartconfig_sta();
+    wifi_config_wait_connected();
+    initialize_sntp_v5();
+
+    vTaskDelete(NULL);
 }

@@ -1,10 +1,10 @@
 /**
  ****************************************************************************************************
- * @file        tud_flash.h
+ * @file        udp.h
  * @author      正点原子团队(ALIENTEK)
  * @version     V1.0
- * @date        2023-12-01
- * @brief       FLASH模拟U盘（USB）代码
+ * @date        2023-08-26
+ * @brief       LWIP实验
  * @license     Copyright (c) 2020-2032, 广州市星翼电子科技有限公司
  ****************************************************************************************************
  * @attention
@@ -18,26 +18,15 @@
  ****************************************************************************************************
  */
 
-#ifndef __TUD_FLASH_H
-#define __TUD_FLASH_H
+#ifndef __FILE_WORKER_H
+#define __FILE_WORKER_H
 
-#include <inttypes.h>
-#include "ff.h"
-#include "diskio.h"
-#include "esp_vfs_fat.h"
-#include "tinyusb.h"
-#include "esp_idf_version.h"
+typedef struct {
+    char src[64];
+    char dst[64];
+} file_copy_msg_t;
 
-/* USB控制器 */
-typedef struct
-{
-    uint8_t status;                         /* bit0:0,断开;1,连接 */
-}__usbdev;
+void file_task_worker(void *arg);
+extern QueueHandle_t usb_copy_queue;
 
-extern __usbdev g_usbdev;               /* USB控制器 */
-
-/* 函数声明 */
-void tud_usb_flash(void);
-void file_copy_task(void);
-void usb_copy_task(void *arg);
 #endif

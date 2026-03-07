@@ -35,7 +35,6 @@ typedef struct {
 #define WIFI_CFG_CONNECTED_BIT   BIT0
 #define WIFI_CFG_SC_DONE_BIT     BIT1
 
-#define STA_AP_MODE 1
 extern EventGroupHandle_t s_wifi_event_group;
 extern data_config_t g_data_config;
 /* 获取内部 EventGroup（高级用法） */
@@ -54,4 +53,6 @@ esp_err_t load_data_config(data_config_t *config);
 esp_err_t get_config_handler(httpd_req_t *req);
 esp_err_t get_wifi_info_handler(httpd_req_t *req);
 void web_prov_start(void);
+void wifi_background_task(void *pv);
+void initialize_sntp_v5(void) ;
 #endif
