@@ -1,7 +1,7 @@
 #include "mqtt_client.h"
 #include "xl9555.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+#include "freertos/FreeRTOS.h" // Keep this one for FreeRTOS
+#include "freertos/task.h"    // Keep this one for FreeRTOS
 #include <string.h>
 #include <stdio.h>
 #include "lwip_mqtt.h"
@@ -65,10 +65,61 @@ void wifi_switch_mode(void)
 }
 
 
+// Static handle to the OTA update task, initialized to NULL
+static TaskHandle_t xOtaTaskHandle = NULL;
+
+// New task function to handle OTA update process
+static void ota_update_task(void *arg)
+{
+    printf("Starting OTA update task...\n");
+    login_response_t resp = {0};
+
+    if (http_login(&resp)) {
+        ESP_LOGI("MAIN", "登录成功, token=%s", resp.token);
+        // ⭐ 1. 登录成功 → 请求版本
+        if (http_get_version(resp.token)) {
+            char buf[256] = {0};
+            // 拼接 U 盘完整路径 (例如: /usb/ota_data_initial.bin)
+            snprintf(buf, sizeof(buf), "%s/%s", USB_PATH, g_download_info.file_name);
+            strcpy(g_strWriteLocalFileName, buf);
+
+            // ⭐ 2. 开始下载到 U 盘
+            if (download_to_usb(g_download_info.url, g_strWriteLocalFileName) == ESP_OK) {
+                ESP_LOGI("MAIN", "下载完成，开始 MD5 校验...");
+
+                // ⭐ 3. 进行 MD5 完整性校验
+                if (verify_file_md5(g_strWriteLocalFileName, g_download_info.md5)) {
+                    ESP_LOGI("MAIN", "✅ MD5 校验通过，固件合法！");
+                    
+                    // --- 此处可以安全地执行后续 OTA 处理 (如从 U 盘刷机) ---
+                    // execute_ota_update_from_usb(g_strWriteLocalFileName);
+                    
+                } else {
+                    ESP_LOGE("MAIN", "❌ MD5 校验失败，文件可能在传输中损坏！");
+                    
+                    // 校验失败，建议删除损坏的文件，避免占用空间或被误用
+                    unlink(g_strWriteLocalFileName); 
+                }
+            } else {
+                ESP_LOGE("MAIN", "下载失败，请检查网络或 U 盘挂载状态");
+            }
+        }
+    } 
+    else 
+    {
+        ESP_LOGE("MAIN", "登录失败");
+    }
+
+    printf("OTA update task finished.\n");
+    xOtaTaskHandle = NULL; // Clear the task handle as the task is about to delete itself
+    vTaskDelete(NULL); // Delete this task
+}
+
+
 void key_scan_task(void *arg)
 {
     uint8_t key;
-    
+
     while(1)
     {
         key = xl9555_key_scan(0);
@@ -81,7 +132,7 @@ void key_scan_task(void *arg)
                 {
                     memset(g_strReadLocalFileName,0,sizeof(g_strReadLocalFileName));
                     // strcpy(g_strReadLocalFileName,SPIFFS_FILE_NAME);
-                    strcat(g_strReadLocalFileName, USB_PATH);                
+                    strcat(g_strReadLocalFileName, USB_PATH);
                     strcat(g_strReadLocalFileName, "/");
                     strcat(g_strReadLocalFileName, g_data_config.local_file);
                     send_json_data_events(client,DEVICE_PUBLISH_EVENT,EVENT_UPLOAD,g_data_config.upload_server);
@@ -91,12 +142,19 @@ void key_scan_task(void *arg)
             case KEY1_PRES:
             {
                 printf("KEY1 has been pressed \n");
-                
-                if(client)
-                {
-                    send_json_data_events(client,DEVICE_PUBLISH_EVENT,EVENT_DOWNLOAD,OBS_DOWN_FILE_NAME);
+
+                // If the OTA task is not already running, create it
+                if (xOtaTaskHandle == NULL) {
+                    xTaskCreate(ota_update_task,     // Task function
+                                "OTA_Update_Task",   // Name of task
+                                4096,                // Stack size (bytes) - adjust as needed
+                                NULL,                // Parameter to pass to the task
+                                5,                   // Priority (lower than key_scan_task if key_scan is critical)
+                                &xOtaTaskHandle);    // Task handle to keep track
+                    printf("Starting OTA update in background task.\n");
+                } else {
+                    printf("OTA update is already running. Please wait.\n");
                 }
-                //xl9555_pin_write(BEEP_IO, 1);
                 break;
             }
             case KEY2_PRES:
@@ -116,7 +174,6 @@ void key_scan_task(void *arg)
                 break;
             }
         }
-        
         vTaskDelay(10);
     }
 }

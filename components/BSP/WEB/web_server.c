@@ -3,6 +3,7 @@
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "../../main/APP/wifi_config.h"
+#include "web_server_handlers.h" // Include the new handlers header
 
 static const char *TAG = "WEB_SERVER";
 static httpd_handle_t server = NULL;
@@ -26,7 +27,7 @@ void web_server_start(void)
     if (server) return;
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 8;
+    config.max_uri_handlers = 10; // Increased to accommodate new handlers
   //  config.stack_size  = 8096;
 
     if (httpd_start(&server, &config) == ESP_OK) {
@@ -70,6 +71,20 @@ void web_server_start(void)
         .handler  = get_wifi_info_handler,
         .user_ctx = NULL
     };
+    // New handlers for instrument configuration
+    httpd_uri_t get_instrument_config_uri = {
+        .uri       = "/get_instrument_config",
+        .method    = HTTP_GET,
+        .handler   = get_instrument_config_handler,
+        .user_ctx  = NULL
+    };
+    httpd_uri_t save_instrument_config_uri = {
+        .uri       = "/save_instrument_config",
+        .method    = HTTP_POST,
+        .handler   = save_instrument_config_handler,
+        .user_ctx  = NULL
+    };
+
 
     httpd_register_uri_handler(server, &wifi_info_uri);
     httpd_register_uri_handler(server, &get_config_uri);
@@ -77,6 +92,9 @@ void web_server_start(void)
     httpd_register_uri_handler(server, &wifi_scan_uri);  
     httpd_register_uri_handler(server, &save_config_uri);
     httpd_register_uri_handler(server, &connect_wifi_uri);
+    // Register new instrument configuration handlers
+    httpd_register_uri_handler(server, &get_instrument_config_uri);
+    httpd_register_uri_handler(server, &save_instrument_config_uri);
 
 }
 
@@ -88,3 +106,4 @@ void web_server_stop(void)
         ESP_LOGI(TAG, "Web server stopped");
     }
 }
+

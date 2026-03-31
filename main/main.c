@@ -31,6 +31,8 @@
 #include "key_scan.h"
 #include "mqtt_client.h"
 #include "file_worker.h"
+#include "web_server.h"          // 添加这一行
+#include "web_server_handlers.h" // 添加这一行
 
 static const char *TAG = "MAIN";
 i2c_obj_t i2c0_master;
@@ -71,6 +73,7 @@ void app_main(void)
         ESP_ERROR_CHECK(nvs_flash_erase());
         ESP_ERROR_CHECK(nvs_flash_init());
     }
+    ESP_ERROR_CHECK(init_web_config_nvs()); // 添加这一行
 
     /* ================= OTA ================= */    
     ota_read_success_flag();
@@ -98,7 +101,7 @@ void app_main(void)
     }
 
     /* ================= 本地任务 ================= */
-    xTaskCreate(mem_monitor_task, "mem_mon", 4096, NULL, 5, NULL);
+    //xTaskCreate(mem_monitor_task, "mem_mon", 4096, NULL, 5, NULL);
     xTaskCreatePinnedToCore(
         file_task_worker,
         "file_task_worker",
