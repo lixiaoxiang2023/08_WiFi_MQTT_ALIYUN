@@ -69,11 +69,11 @@ static const char *wifi_config_html =
 "<h3>产品线选择</h3>"
 "<label>产品线</label>"
 "<select id='productLine' onchange='updateUI()'>"
-"<option selected>半自动</option>"
-"<option>全自动</option>"
-"<option>妇科</option>"
-"<option>动物</option>"
-"<option>自定义</option>"
+"<option value='semi_auto' selected>半自动</option>"
+"<option value='full_auto'>全自动</option>"
+"<option value='gyn'>妇科</option>"
+"<option value='animal'>动物</option>"
+"<option value='custom'>自定义</option>"
 "</select>"
 
 "<div id='modelBox'>"
@@ -86,7 +86,7 @@ static const char *wifi_config_html =
 "<h3>固件与数据配置</h3>"
 
 "<label>下载固件版本号</label>"
-"<input placeholder='如：1.00.01'>"
+"<input id='otaFirmwareVersion' placeholder='如：1.00.01'>"
 "<div class='tip'>示例格式：1.00.01</div>"
 
 "<h3 style='margin-top:18px'>数据上传配置</h3>"
@@ -107,7 +107,7 @@ static const char *wifi_config_html =
 "<label>上传文件名称</label>"
 "<input id='uploadServerInput' placeholder='如：upload_20240208.dat'>"
 
-"<button class='btn btn-success' onclick='submitDataConfig()'>保存配置</button>"
+"<button class='btn btn-success' onclick='saveInstrumentConfig()'>保存配置</button>"
 
 "</div>"
 "</div>"
@@ -129,17 +129,21 @@ static const char *wifi_config_html =
 /* 产品线联动 */
 "function updateUI(){"
 "const line=document.getElementById('productLine').value;"
-"const model=document.getElementById('model');"
-"model.innerHTML='';"
-"const map={'半自动':['UC-50A','UC-50BC','UC-280A','UC-280B'],"
-"'全自动':['UC-1600','UC-1800'],"
-"'妇科':['SL-1000'],"
-"'动物':['EM-100']};"
+"const modelSelect=document.getElementById('model');"
+"modelSelect.innerHTML='';"
+"const map={"
+"'semi_auto':[{text:'UC-50A', value:'uc50a'},{text:'UC-50BC', value:'uc50bc'},{text:'UC-280A', value:'uc280a'},{text:'UC-280B', value:'uc280b'}],"
+"'full_auto':[{text:'UC-1600', value:'uc1600'},{text:'UC-1800', value:'uc1800'}],"
+"'gyn':[{text:'SL-1000', value:'sl1000'}],"
+"'animal':[{text:'EM-100', value:'em100'}],"
+"'custom':[{text:'自定义机型', value:'custom_model'}]"
+"};"
 "if(map[line]){"
 "map[line].forEach(m=>{"
 "let o=document.createElement('option');"
-"o.text=m;"
-"model.add(o);"
+"o.text=m.text;"
+"o.value=m.value;"
+"modelSelect.add(o);"
 "});"
 "}"
 "}"
@@ -209,20 +213,28 @@ static const char *wifi_config_html =
 "console.warn('读取WiFi信息失败');"
 "}"
 
-/* ===== 2️⃣ 读取NVS数据配置 ===== */
+/* ===== 2️⃣ 读取NVS仪器配置 (新逻辑，包含所有仪器相关配置) ===== */
 "try{"
-"const resp = await fetch('/get_config?t=' + Date.now());"
-"if(resp.ok){"
-"const cfg = await resp.json();"
+"const instrumentResp = await fetch('/get_instrument_config?t=' + Date.now());"
+"if(instrumentResp.ok){"
+"const instrumentCfg = await instrumentResp.json();"
 
+"const productLineSelect = document.getElementById('productLine');"
+"const modelSelect = document.getElementById('model');"
+"const otaFirmwareVersionInput = document.getElementById('otaFirmwareVersion');"
 "const localSelect = document.getElementById('localFileSelect');"
 "const uploadInput = document.getElementById('uploadServerInput');"
 
-"const localFile = cfg.localFile || '';"
-"uploadInput.value = cfg.uploadServer || '';"
+
+"if (instrumentCfg.platform_code) productLineSelect.value = instrumentCfg.platform_code;"
+"updateUI();"
+"if (instrumentCfg.product_code) modelSelect.value = instrumentCfg.product_code;"
+"if (instrumentCfg.firmware_version) otaFirmwareVersionInput.value = instrumentCfg.firmware_version;"
+"uploadInput.value = instrumentCfg.uploadServer || '';"
+
 
 "await loadUsbFiles();"
-
+"const localFile = instrumentCfg.localFile || '';"
 "let optionExists = false;"
 "for(let i=0;i<localSelect.options.length;i++){"
 "if(localSelect.options[i].value === localFile){"
@@ -241,11 +253,10 @@ static const char *wifi_config_html =
 "localSelect.value = localFile;"
 "}"
 
-"}else{"
-"await loadUsbFiles();"
+
 "}"
 "}catch(e){"
-"console.warn('获取配置失败');"
+"console.warn('获取仪器配置失败', e);"
 "await loadUsbFiles();"
 "}"
 
@@ -283,18 +294,28 @@ static const char *wifi_config_html =
 ".catch(()=>alert('连接失败'));"
 "}"
 
-/* 保存配置 */
-"function submitDataConfig(){"
-"const localFile=document.getElementById('localFileSelect').value;"
-"const uploadServer=document.getElementById('uploadServerInput').value.trim();"
-"fetch('/save_config',{"
+/* 保存仪器配置 (合并了OTA和数据上传配置) */
+"function saveInstrumentConfig(){"
+"const productLine = document.getElementById('productLine').value;"
+"const model = document.getElementById('model').value;"
+"const otaFirmwareVersion = document.getElementById('otaFirmwareVersion').value.trim();"
+"const localFile = document.getElementById('localFileSelect').value;"
+"const uploadServer = document.getElementById('uploadServerInput').value.trim();"
+
+"fetch('/save_instrument_config',{"
 "method:'POST',"
 "headers:{'Content-Type':'application/json'},"
-"body:JSON.stringify({localFile:localFile,uploadServer:uploadServer})"
+"body:JSON.stringify({"
+"platform_code: productLine,"
+"product_code: model,"
+"firmware_version: otaFirmwareVersion,"
+"localFile: localFile,"
+"uploadServer: uploadServer"
+"})"
 "})"
 ".then(resp=>resp.text())"
-".then(()=>alert('配置已提交'))"
-".catch(()=>alert('提交失败'));"
+".then(()=>alert('仪器配置已保存'))"
+".catch(()=>alert('保存失败'));"
 "}"
 
 "</script>"

@@ -106,7 +106,7 @@ static void event_handler(void *arg,
 
         case WIFI_EVENT_STA_START:
             ESP_LOGI(TAG, "WIFI_EVENT_STA_START");
-            web_server_start();
+          //  web_server_start();
             break;
 
         case WIFI_EVENT_STA_DISCONNECTED:
@@ -115,10 +115,11 @@ static void event_handler(void *arg,
             if(s_retry_count < WIFI_CONNECT_RETRY_MAX){
                 s_retry_count++;
                 ESP_LOGI(TAG, "Retrying WiFi connect %d/%d", s_retry_count, WIFI_CONNECT_RETRY_MAX);
+                esp_smartconfig_stop();
                 esp_wifi_connect();
             } else {
                 ESP_LOGW(TAG, "Exceeded max retries, will start SmartConfig");
-              //  xEventGroupSetBits(s_wifi_event_group, WIFI_CFG_CONNECTED_BIT); // 触发主任务启动 SmartConfig
+                //xEventGroupSetBits(s_wifi_event_group, WIFI_CFG_CONNECTED_BIT); // 触发主任务启动 SmartConfig
             }
             break;
 
@@ -132,7 +133,7 @@ static void event_handler(void *arg,
         s_sta_connecting = false;
         s_retry_count = 0;
         xEventGroupSetBits(s_wifi_event_group, WIFI_CFG_CONNECTED_BIT);
-        mqtt_init();  // 或单独写个 mqtt_start()
+       // mqtt_init();  // 或单独写个 mqtt_start()
     }
     else if (event_base == SC_EVENT) {
 
@@ -324,6 +325,7 @@ static void smartconfig_task(void *parm)
            // esp_smartconfig_stop();
             // s_smartconfig_started = false;
             // vTaskDelete(NULL);
+            vTaskDelay(pdMS_TO_TICKS(300));
         }
 
         if (bits & WIFI_CFG_SC_DONE_BIT) {
@@ -696,10 +698,11 @@ void initialize_sntp_v5(void) {
 void wifi_background_task(void *pv)
 {
     ESP_LOGI("WIFI", "WiFi background start");
-
+    // 强制 WiFi 保持全功率运行，不进入休眠
+    esp_wifi_set_ps(WIFI_PS_NONE); 
+    ESP_LOGW("MAIN", "WiFi 节能模式已关闭，提升通信稳定性");
     wifi_smartconfig_sta();
     wifi_config_wait_connected();
     initialize_sntp_v5();
-
     vTaskDelete(NULL);
 }
