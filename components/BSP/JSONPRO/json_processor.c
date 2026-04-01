@@ -351,3 +351,36 @@ bool parse_ota_response(const char *json_data, ota_info_t *out_info) {
     cJSON_Delete(root);
     return true;
 }
+
+// 假设我们最多支持 10 个产品显示在下拉框
+product_info_t g_products[30];
+int g_product_count = 0;
+
+void parse_all_products(const char *json_str) {
+    cJSON *root = cJSON_Parse(json_str);
+    if (root == NULL) return;
+
+    cJSON *data_array = cJSON_GetObjectItem(root, "data");
+    if (cJSON_IsArray(data_array)) {
+        g_product_count = cJSON_GetArraySize(data_array);
+        
+        // 限制最大解析数量，防止内存溢出
+        int limit = (g_product_count < 30) ? g_product_count : 30;
+        
+        for (int i = 0; i < limit; i++) {
+            cJSON *item = cJSON_GetArrayItem(data_array, i);
+            if (item) {
+                cJSON *name = cJSON_GetObjectItem(item, "name");
+                cJSON *code = cJSON_GetObjectItem(item, "code");
+                
+                if (cJSON_IsString(name) && cJSON_IsString(code)) {
+                    strncpy(g_products[i].name, name->valuestring, sizeof(g_products[i].name) - 1);
+                    strncpy(g_products[i].code, code->valuestring, sizeof(g_products[i].code) - 1);
+                    
+                    ESP_LOGI("PARSE", "找到产品[%d]: %s (%s)", i, g_products[i].name, g_products[i].code);
+                }
+            }
+        }
+    }
+    cJSON_Delete(root);
+}

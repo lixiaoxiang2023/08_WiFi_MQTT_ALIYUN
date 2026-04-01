@@ -28,12 +28,8 @@
 #define OBS_TX_BUF  (4 * 1024)
 #define MAX_HTTP_OUTPUT_BUFFER 2048
 
-typedef struct {
-    char *buffer;
-    int len;
-} http_response_t;
 
-static http_response_t g_http_resp;
+http_response_t g_http_resp;
 /* ===================== CA证书 ===================== */
 
 // 将CA证书内容以字符串形式嵌入
@@ -630,6 +626,71 @@ bool http_login(login_response_t *resp)
     return parse_login_response(http_resp.buffer, resp);
 }
 
+/**
+ * @brief 获取所有产品列表
+ * @param token 登录获取的 Bearer Token
+ * @return true 成功 / false 失败
+ */
+bool http_get_all_products(const char *token)
+{
+    if (token == NULL) return false;
+
+    // 1. 清理并准备响应缓存
+    memset(&g_http_resp, 0, sizeof(g_http_resp));
+    if (g_http_resp.buffer == NULL) {
+        g_http_resp.buffer = malloc(MAX_HTTP_OUTPUT_BUFFER);
+    }
+    if (!g_http_resp.buffer) return false;
+    memset(g_http_resp.buffer, 0, MAX_HTTP_OUTPUT_BUFFER);
+
+    // 2. 配置 HTTP 客户端
+    const char *target_url = "http://111.59.118.25:18083/software/getallproducts";
+    esp_http_client_config_t config = {
+        .url = target_url,
+        .method = HTTP_METHOD_GET,     // ⭐ 根据你提供的逻辑，这里使用 GET
+        .timeout_ms = 30000,
+        .event_handler = urit_http_event_handler,
+        .user_data = &g_http_resp,
+        .buffer_size = 2048,           // 预防 Header 过长
+    };
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (!client) {
+        return false;
+    }
+
+    // 3. 设置鉴权 Header
+    char auth_header[600];
+    snprintf(auth_header, sizeof(auth_header), "Bearer %s", token);
+    esp_http_client_set_header(client, "Authorization", auth_header);
+
+    ESP_LOGI("HTTP", ">>>>>>>>> [DEBUG] GET PRODUCTS >>>>>>>>>");
+    ESP_LOGI("HTTP", "URL: %s", target_url);
+
+    // 4. 执行请求
+    esp_err_t err = esp_http_client_perform(client);
+    
+    bool success = false;
+    if (err == ESP_OK) {
+        int status = esp_http_client_get_status_code(client);
+        if (status == 200 && g_http_resp.len > 0) {
+            // 确保字符串正常结束
+            g_http_resp.buffer[g_http_resp.len < MAX_HTTP_OUTPUT_BUFFER ? g_http_resp.len : MAX_HTTP_OUTPUT_BUFFER - 1] = '\0';
+            
+            ESP_LOGI("HTTP", "<<<<<<<<< [RECV] PRODUCTS LIST <<<<<<<<<");
+            ESP_LOGI("HTTP", "JSON: %s", (char*)g_http_resp.buffer);
+            success = true;
+        } else {
+            ESP_LOGE("HTTP", "请求失败，状态码: %d", status);
+        }
+    } else {
+        ESP_LOGE("HTTP", "HTTP 执行错误: %s", esp_err_to_name(err));
+    }
+
+    // 5. 清理资源
+    esp_http_client_cleanup(client);
+    return success;
+}
 
 // 全变量定义
 ota_info_t g_download_info = {0};

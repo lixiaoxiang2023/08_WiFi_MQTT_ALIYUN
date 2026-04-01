@@ -4,7 +4,9 @@
 #include "esp_err.h"
 #include "esp_http_server.h"
 #include "cJSON.h"
-
+#include <dirent.h>     // 添加这些，因为文件操作转移到这里
+#include <sys/stat.h>   // 添加这些
+// #include "esp_wifi_types.h" // 移除这一行
 // NVS 存储的键定义
 #define NVS_NAMESPACE "config"
 #define NVS_KEY_PLATFORM_CODE "plat_code"
@@ -22,9 +24,16 @@ typedef struct {
     char platform_code[32];
     char product_code[32];
     char firmware_version[32];
-    char local_file[128];
-    char upload_server[128];
 } instrument_config_t;
+
+/**
+ * @brief 结构体，用于统一管理数据上传相关配置。
+ */
+typedef struct {
+    char local_file[128];       // 本地文件名称
+    char upload_server[128];    // 上传服务器地址或路径
+} data_upload_config_t;
+
 
 /**
  * @brief 初始化 NVS 存储。
@@ -46,14 +55,32 @@ esp_err_t save_instrument_config_to_nvs(const instrument_config_t *config);
  */
 esp_err_t load_instrument_config_from_nvs(instrument_config_t *config);
 
-// --- HTTP Request Handlers ---
+/**
+ * @brief 从 NVS 加载数据上传配置。
+ * @param config 用于存储加载配置的结构体指针。
+ * @return ESP_OK 成功，否则失败。
+ */
+esp_err_t load_data_upload_config_from_nvs(data_upload_config_t *config);
+
+/**
+ * @brief 将数据上传配置保存到 NVS。
+ * @param config 要保存的配置结构体指针。
+ * @return ESP_OK 成功，否则失败。
+ */
+esp_err_t save_data_upload_config_to_nvs(const data_upload_config_t *config);
+
+
+// --- HTTP Request Handlers --- (从 wifi_config.c 移动过来，以及新的仪器配置处理器)
 esp_err_t get_instrument_config_handler(httpd_req_t *req);
 esp_err_t save_instrument_config_handler(httpd_req_t *req);
-// 你需要在这里添加其他已有的 Web 服务器处理器声明，例如：
-// esp_err_t http_server_page_handler(httpd_req_t *req);
-// esp_err_t wifi_scan_handler(httpd_req_t *req);
-// esp_err_t wifi_connect_handler(httpd_req_t *req);
-// esp_err_t get_wifi_info_handler(httpd_req_t *req);
-// esp_err_t usb_files_handler(httpd_req_t *req);
+
+esp_err_t wifi_scan_handler(httpd_req_t *req);
+extern esp_err_t wifi_apply_config(const char *ssid, const char *password); // 声明 extern 确保可调用
+esp_err_t connect_wifi_handler(httpd_req_t *req);
+esp_err_t usb_files_handler(httpd_req_t *req);
+esp_err_t get_config_handler(httpd_req_t *req); // 用于获取数据上传配置
+esp_err_t get_wifi_info_handler(httpd_req_t *req);
+esp_err_t save_config_handler(httpd_req_t *req); // 用于保存数据上传配置
+esp_err_t get_product_list_handler(httpd_req_t *req);
 
 #endif // WEB_SERVER_HANDLERS_H

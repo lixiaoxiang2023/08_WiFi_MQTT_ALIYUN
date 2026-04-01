@@ -127,15 +127,19 @@ void key_scan_task(void *arg)
         {
             case KEY0_PRES:
             {
-                printf("KEY0 has been pressed \n");
-                if(client)
-                {
-                    memset(g_strReadLocalFileName,0,sizeof(g_strReadLocalFileName));
-                    // strcpy(g_strReadLocalFileName,SPIFFS_FILE_NAME);
-                    strcat(g_strReadLocalFileName, USB_PATH);
-                    strcat(g_strReadLocalFileName, "/");
-                    strcat(g_strReadLocalFileName, g_data_config.local_file);
-                    send_json_data_events(client,DEVICE_PUBLISH_EVENT,EVENT_UPLOAD,g_data_config.upload_server);
+                ESP_LOGI("MAIN", "KEY0 按键触发：开始同步产品列表...");
+                login_response_t resp = {0};
+
+                // 1. 先登录拿 Token
+                if (http_login(&resp)) {
+                    // 2. 获取产品列表 (该函数会将 JSON 存在 g_http_resp.buffer 中)
+                    if (http_get_all_products(resp.token)) {
+                        ESP_LOGI("MAIN", "同步成功，数据已缓存，等待网页刷新。");
+                    } else {
+                        ESP_LOGE("MAIN", "产品获取失败");
+                    }
+                } else {
+                    ESP_LOGE("MAIN", "登录失败，无法同步产品");
                 }
                 break;
             }

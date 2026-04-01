@@ -73,7 +73,9 @@ void app_main(void)
         ESP_ERROR_CHECK(nvs_flash_erase());
         ESP_ERROR_CHECK(nvs_flash_init());
     }
-    ESP_ERROR_CHECK(init_web_config_nvs()); // 添加这一行
+
+    // 在 Web 服务器和任何 NVS 读写操作之前初始化 NVS 句柄
+    ESP_ERROR_CHECK(init_web_config_nvs()); // 【重要】添加这一行
 
     /* ================= OTA ================= */    
     ota_read_success_flag();
@@ -95,10 +97,13 @@ void app_main(void)
     tud_usb_flash();
     firmware_storage_check(NULL);
 
+    // 移除对 g_data_config 的直接操作，现在由 web_server_handlers.c 管理
+    /*
     if (load_data_config(&g_data_config) == ESP_FAIL) {
         strcpy(g_data_config.local_file,USB_FILE_NAME);
         strcpy(g_data_config.upload_server,OBS_DOWN_FILE_NAME);
     }
+    */
 
     /* ================= 本地任务 ================= */
     //xTaskCreate(mem_monitor_task, "mem_mon", 4096, NULL, 5, NULL);
@@ -133,3 +138,4 @@ void app_main(void)
         NULL
     );
 }
+

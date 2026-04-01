@@ -35,7 +35,9 @@ set(requires
             esp_https_ota
             esp_http_client
             esp_http_server
-            esp_system)
+            esp_system
+            esp_wifi             # 【关键】添加这一行
+            esp_event)           # 【建议添加】web_server_handlers.c 中也用到了 esp_event_handler_register/unregister
 
 idf_component_register(SRC_DIRS ${src_dirs} INCLUDE_DIRS ${include_dirs} REQUIRES ${requires} )
 

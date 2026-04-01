@@ -7,7 +7,6 @@ static const char *wifi_config_html =
 "<meta charset='utf-8'>"
 "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
 "<title>ESP32 设备管理控制台</title>"
-
 "<style>"
 "body{margin:0;font-family:Arial;background:#f2f4f8;}"
 ".header{background:#2d8cf0;color:#fff;padding:14px;text-align:center;font-size:18px;}"
@@ -28,22 +27,15 @@ static const char *wifi_config_html =
 ".inline{display:flex;gap:12px;flex-wrap:wrap;align-items:end;}"
 ".inline>div{flex:1;min-width:220px;}"
 "</style>"
-
 "</head>"
 "<body>"
-
 "<div class='header'>ESP32 设备管理控制台</div>"
-
 "<div class='tabs'>"
 "<div class='tab active' onclick='showPage(0)'>系统配置</div>"
 "<div class='tab' onclick='showPage(1)'>仪器配置</div>"
 "</div>"
-
 "<div class='content'>"
-
-/* ================= 系统页 ================= */
 "<div class='page active'>"
-
 "<div class='card'>"
 "<h3>WiFi 设置</h3>"
 "<button class='btn btn-primary' onclick='scanWifi()'>扫描附近 WiFi</button>"
@@ -53,72 +45,44 @@ static const char *wifi_config_html =
 "<input type='password' id='wifiPwd'>"
 "<button class='btn btn-success' onclick='connectWifi()'>保存并连接</button>"
 "</div>"
-
 "<div class='card'>"
 "<h3>设备信息</h3>"
 "<p>软件版本号：V1.0.0</p>"
 "<p>硬件版本号：HW-A1</p>"
 "</div>"
-
 "</div>"
-
-/* ================= 仪器页 ================= */
 "<div class='page'>"
-
 "<div class='card'>"
 "<h3>产品线选择</h3>"
-"<label>产品线</label>"
+"<label>产品线 (自动同步服务器)</label>"
 "<select id='productLine' onchange='updateUI()'>"
-"<option value='semi_auto' selected>半自动</option>"
-"<option value='full_auto'>全自动</option>"
-"<option value='gyn'>妇科</option>"
-"<option value='animal'>动物</option>"
-"<option value='custom'>自定义</option>"
+"<option>加载中...</option>"
 "</select>"
-
 "<div id='modelBox'>"
-"<label>机型</label>"
+"<label>机型说明</label>"
 "<select id='model'></select>"
 "</div>"
 "</div>"
-
 "<div class='card'>"
 "<h3>固件与数据配置</h3>"
-
 "<label>下载固件版本号</label>"
 "<input id='otaFirmwareVersion' placeholder='如：1.00.01'>"
 "<div class='tip'>示例格式：1.00.01</div>"
-
 "<h3 style='margin-top:18px'>数据上传配置</h3>"
-
 "<label>本地文件名称</label>"
-
 "<div class='inline'>"
-"<div>"
-"<select id='localFileSelect'></select>"
+"<div><select id='localFileSelect'></select></div>"
+"<div style='flex:0'><button class='btn btn-primary' onclick='loadUsbFiles()'>刷新文件列表</button></div>"
 "</div>"
-"<div style='flex:0'>"
-"<button class='btn btn-primary' onclick='loadUsbFiles()'>刷新文件列表</button>"
-"</div>"
-"</div>"
-
 "<div class='tip'>显示U盘中的文件列表</div>"
-
 "<label>上传文件名称</label>"
 "<input id='uploadServerInput' placeholder='如：upload_20240208.dat'>"
-
 "<button class='btn btn-success' onclick='saveInstrumentConfig()'>保存配置</button>"
-
 "</div>"
 "</div>"
-
 "</div>"
-
-/* ================= JS ================= */
-
 "<script>"
-
-/* 页面切换 */
+"let g_serverProducts = [];"
 "function showPage(i){"
 "document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));"
 "document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));"
@@ -126,197 +90,105 @@ static const char *wifi_config_html =
 "document.querySelectorAll('.page')[i].classList.add('active');"
 "}"
 
-/* 产品线联动 */
+/* ⭐ 动态更新 UI：根据选择的产品展示详情 */
 "function updateUI(){"
-"const line=document.getElementById('productLine').value;"
+"const code=document.getElementById('productLine').value;"
 "const modelSelect=document.getElementById('model');"
 "modelSelect.innerHTML='';"
-"const map={"
-"'semi_auto':[{text:'UC-50A', value:'uc50a'},{text:'UC-50BC', value:'uc50bc'},{text:'UC-280A', value:'uc280a'},{text:'UC-280B', value:'uc280b'}],"
-"'full_auto':[{text:'UC-1600', value:'uc1600'},{text:'UC-1800', value:'uc1800'}],"
-"'gyn':[{text:'SL-1000', value:'sl1000'}],"
-"'animal':[{text:'EM-100', value:'em100'}],"
-"'custom':[{text:'自定义机型', value:'custom_model'}]"
-"};"
-"if(map[line]){"
-"map[line].forEach(m=>{"
+"const product = g_serverProducts.find(p => p.code === code);"
+"if(product){"
 "let o=document.createElement('option');"
-"o.text=m.text;"
-"o.value=m.value;"
+"o.text = product.name + ' - ' + product.description.substring(0,20) + '...';"
+"o.value = product.code;"
 "modelSelect.add(o);"
-"});"
 "}"
 "}"
-"updateUI();"
 
-/* ======== 重点：U盘文件刷新（完全稳定版）======== */
+/* ⭐ 获取产品列表核心逻辑 */
+"async function fetchProductList(){"
+"try{"
+"const res = await fetch('/api/get_product_list?t='+Date.now());"
+"const json = await res.json();"
+"if(json.code === 0){"
+"g_serverProducts = json.data;"
+"const pl = document.getElementById('productLine');"
+"pl.innerHTML = '';"
+"g_serverProducts.forEach(p => {"
+"let o = document.createElement('option');"
+"o.text = p.name;"
+"o.value = p.code;"
+"pl.add(o);"
+"});"
+"updateUI();"
+"}"
+"}catch(e){ console.error('获取产品失败', e); }"
+"}"
+
 "async function loadUsbFiles(){"
 "try{"
 "const response=await fetch('/usb_files?t='+Date.now());"
-"if(!response.ok) throw new Error('HTTP error');"
 "const data=await response.json();"
-
 "const select=document.getElementById('localFileSelect');"
 "select.innerHTML='';"
-
 "if(!data || data.length===0){"
-"let o=document.createElement('option');"
-"o.text='未发现文件';"
-"select.add(o);"
+"let o=document.createElement('option'); o.text='未发现文件'; select.add(o);"
 "return;"
 "}"
-
 "data.forEach(file=>{"
-"let o=document.createElement('option');"
-"o.text=file;"
-"o.value=file;"
-"select.add(o);"
+"let o=document.createElement('option'); o.text=file; o.value=file; select.add(o);"
 "});"
-
-"}catch(err){"
-"alert('读取U盘失败');"
-"}"
+"}catch(err){ alert('读取U盘失败'); }"
 "}"
 
-/* 页面加载自动刷新 */
-/* 页面加载自动读取NVS配置并恢复 */
 "window.onload = async function(){"
-/* ===== 1️⃣ 读取已连接WiFi信息 ===== */
+"await fetchProductList();" /* ⭐ 优先加载产品 */
 "try{"
 "const wifiResp = await fetch('/get_wifi_info?t=' + Date.now());"
 "if(wifiResp.ok){"
 "const wifiData = await wifiResp.json();"
-
 "if(wifiData.ssid){"
 "document.getElementById('wifiPwd').value = wifiData.password || '';"
-
-"let wifiSelect = document.getElementById('wifiList');"
-"let exists = false;"
-"for(let i=0;i<wifiSelect.options.length;i++){"
-"if(wifiSelect.options[i].value === wifiData.ssid){"
-"exists = true;"
-"break;"
-"}"
-"}"
-
-"if(!exists){"
+"let ws = document.getElementById('wifiList');"
 "let o = document.createElement('option');"
-"o.text = wifiData.ssid + ' (已连接)';"
-"o.value = wifiData.ssid;"
-"wifiSelect.add(o);"
-"}"
-
-"wifiSelect.value = wifiData.ssid;"
+"o.text = wifiData.ssid + ' (已连接)'; o.value = wifiData.ssid;"
+"ws.add(o); ws.value = wifiData.ssid;"
 "}"
 "}"
-"}catch(e){"
-"console.warn('读取WiFi信息失败');"
-"}"
-
-/* ===== 2️⃣ 读取NVS仪器配置 (新逻辑，包含所有仪器相关配置) ===== */
+"}catch(e){}"
 "try{"
-"const instrumentResp = await fetch('/get_instrument_config?t=' + Date.now());"
-"if(instrumentResp.ok){"
-"const instrumentCfg = await instrumentResp.json();"
-
-"const productLineSelect = document.getElementById('productLine');"
-"const modelSelect = document.getElementById('model');"
-"const otaFirmwareVersionInput = document.getElementById('otaFirmwareVersion');"
-"const localSelect = document.getElementById('localFileSelect');"
-"const uploadInput = document.getElementById('uploadServerInput');"
-
-
-"if (instrumentCfg.platform_code) productLineSelect.value = instrumentCfg.platform_code;"
+"const instResp = await fetch('/get_instrument_config?t=' + Date.now());"
+"if(instResp.ok){"
+"const cfg = await instResp.json();"
+"if(cfg.platform_code) document.getElementById('productLine').value = cfg.platform_code;"
 "updateUI();"
-"if (instrumentCfg.product_code) modelSelect.value = instrumentCfg.product_code;"
-"if (instrumentCfg.firmware_version) otaFirmwareVersionInput.value = instrumentCfg.firmware_version;"
-"uploadInput.value = instrumentCfg.uploadServer || '';"
-
-
-"await loadUsbFiles();"
-"const localFile = instrumentCfg.localFile || '';"
-"let optionExists = false;"
-"for(let i=0;i<localSelect.options.length;i++){"
-"if(localSelect.options[i].value === localFile){"
-"optionExists = true;"
-"break;"
-"}"
-"}"
-
-"if(optionExists){"
-"localSelect.value = localFile;"
-"}else if(localFile){"
-"let o = document.createElement('option');"
-"o.text = localFile + ' (已保存)';"
-"o.value = localFile;"
-"localSelect.add(o);"
-"localSelect.value = localFile;"
-"}"
-
-
-"}"
-"}catch(e){"
-"console.warn('获取仪器配置失败', e);"
+"if(cfg.product_code) document.getElementById('model').value = cfg.product_code;"
+"if(cfg.firmware_version) document.getElementById('otaFirmwareVersion').value = cfg.firmware_version;"
+"document.getElementById('uploadServerInput').value = cfg.uploadServer || '';"
 "await loadUsbFiles();"
 "}"
-
+"}catch(e){ await loadUsbFiles(); }"
 "};"
 
-/* WiFi 扫描 */
 "function scanWifi(){"
-"fetch('/scan?t='+Date.now())"
-".then(response=>response.json())"
-".then(data=>{"
-"const select=document.getElementById('wifiList');"
-"select.innerHTML='';"
-"data.forEach(item=>{"
-"let o=document.createElement('option');"
-"o.text=item.ssid+' ('+item.rssi+' dBm)';"
-"o.value=item.ssid;"
-"select.add(o);"
-"});"
-"})"
-".catch(()=>alert('扫描失败'));"
+"fetch('/scan?t='+Date.now()).then(r=>r.json()).then(data=>{"
+"const s=document.getElementById('wifiList'); s.innerHTML='';"
+"data.forEach(i=>{ let o=document.createElement('option'); o.text=i.ssid+' ('+i.rssi+' dBm)'; o.value=i.ssid; s.add(o); });"
+"}).catch(()=>alert('扫描失败'));"
 "}"
 
-/* WiFi 连接 */
 "function connectWifi(){"
-"const ssid=document.getElementById('wifiList').value;"
-"const pwd=document.getElementById('wifiPwd').value;"
-"if(!ssid){alert('请选择WiFi');return;}"
-"fetch('/connect_wifi',{"
-"method:'POST',"
-"headers:{'Content-Type':'application/json'},"
-"body:JSON.stringify({ssid:ssid,password:pwd})"
-"})"
-".then(resp=>resp.text())"
-".then(data=>alert(data))"
-".catch(()=>alert('连接失败'));"
+"const s=document.getElementById('wifiList').value; const p=document.getElementById('wifiPwd').value;"
+"fetch('/connect_wifi',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ssid:s,password:p})})"
+".then(r=>r.text()).then(d=>alert(d));"
 "}"
 
-/* 保存仪器配置 (合并了OTA和数据上传配置) */
 "function saveInstrumentConfig(){"
-"const productLine = document.getElementById('productLine').value;"
-"const model = document.getElementById('model').value;"
-"const otaFirmwareVersion = document.getElementById('otaFirmwareVersion').value.trim();"
-"const localFile = document.getElementById('localFileSelect').value;"
-"const uploadServer = document.getElementById('uploadServerInput').value.trim();"
-
-"fetch('/save_instrument_config',{"
-"method:'POST',"
-"headers:{'Content-Type':'application/json'},"
-"body:JSON.stringify({"
-"platform_code: productLine,"
-"product_code: model,"
-"firmware_version: otaFirmwareVersion,"
-"localFile: localFile,"
-"uploadServer: uploadServer"
-"})"
-"})"
-".then(resp=>resp.text())"
-".then(()=>alert('仪器配置已保存'))"
-".catch(()=>alert('保存失败'));"
+"const pc=document.getElementById('productLine').value;"
+"const m=document.getElementById('model').value;"
+"const v=document.getElementById('otaFirmwareVersion').value.trim();"
+"const lf=document.getElementById('localFileSelect').value;"
+"const us=document.getElementById('uploadServerInput').value.trim();"
+"fetch('/save_instrument_config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({platform_code:pc,product_code:m,firmware_version:v,localFile:lf,uploadServer:us})})"
+".then(()=>alert('配置已保存'));"
 "}"
-
-"</script>"
-"</body></html>";
+"</script></body></html>";

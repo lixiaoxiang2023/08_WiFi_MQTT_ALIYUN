@@ -16,7 +16,7 @@
 #include "esp_http_client.h" // 确保包含 ESP-IDF HTTP 客户端库
 #include "esp_err.h"
 #include "json_processor.h"
-
+#include "esp_http_server.h"  // ⭐ 必须包含这个
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -43,6 +43,13 @@ typedef struct {
     int status_code;    ///< HTTP 响应状态码 (例如 200, 404, 500)
     // 您可以根据需要在此处添加其他字段，如响应头等
 } generic_http_response_t;
+
+typedef struct {
+    char *buffer;
+    int len;
+} http_response_t;
+
+extern http_response_t g_http_resp;
 
 /**
  * @brief 发送一个通用的 HTTP 请求。
@@ -111,6 +118,7 @@ esp_err_t obs_http_upload(const char *url, const char *local_path);
  *  - ESP_ERR_INVALID_ARG 参数错误
  */
 esp_err_t obs_http_list_bucket(const char *url, const char *save_path);
+bool http_get_all_products(const char *token);
 
 #ifdef __cplusplus
 }

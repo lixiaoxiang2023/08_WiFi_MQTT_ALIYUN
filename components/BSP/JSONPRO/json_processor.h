@@ -60,6 +60,12 @@ typedef struct {
     char *email;
 
 } login_response_t;
+
+typedef struct {
+    int id;
+    char name[32];
+    char code[32];
+} product_info_t;
 typedef struct {
     char file_name[64];       // 对应 files[0].name
     char url[1024];           // 对应 files[0].url，S3 签名 URL 建议给到 1024
@@ -105,4 +111,5 @@ void free_json_packet(json_packet_t *packet);
 bool parse_login_response(const char *json_str, login_response_t *out);
 void free_login_response(login_response_t *out);
 bool parse_ota_response(const char *json_data, ota_info_t *out_info);
+void parse_all_products(const char *json_str);
 #endif

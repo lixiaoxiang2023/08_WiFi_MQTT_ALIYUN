@@ -13,6 +13,7 @@
 #include "lwip_mqtt.h"
 #include "web_server.h"
 #include "esp_netif_sntp.h"
+#include "esp_mac.h"
 
 #define WIFI_CONNECT_TIMEOUT_MS 8000   // 8秒超时
 #define WIFI_CONNECT_RETRY_MAX 3        // STA 最大重试次数
@@ -115,12 +116,25 @@ static void event_handler(void *arg,
             if(s_retry_count < WIFI_CONNECT_RETRY_MAX){
                 s_retry_count++;
                 ESP_LOGI(TAG, "Retrying WiFi connect %d/%d", s_retry_count, WIFI_CONNECT_RETRY_MAX);
-                esp_smartconfig_stop();
+                esp_smartconfig_stop(); // Disconnect and then re-connect, not start smartconfig
                 esp_wifi_connect();
             } else {
                 ESP_LOGW(TAG, "Exceeded max retries, will start SmartConfig");
-                //xEventGroupSetBits(s_wifi_event_group, WIFI_CFG_CONNECTED_BIT); // 触发主任务启动 SmartConfig
+                // 触发主任务启动 SmartConfig （如果需要）
+                // xEventGroupSetBits(s_wifi_event_group, WIFI_CFG_CONNECTED_BIT); // 这一行可能不准确，看你的逻辑
             }
+            break;
+
+        case WIFI_EVENT_AP_STACONNECTED: // AP 客户端连接
+            ESP_LOGI(TAG, "station "MACSTR "join, AID=%d",
+                     MAC2STR(((wifi_event_ap_staconnected_t*)event_data)->mac),
+                     ((wifi_event_ap_staconnected_t*)event_data)->aid);
+            break;
+
+        case WIFI_EVENT_AP_STADISCONNECTED: // AP 客户端断开
+            ESP_LOGI(TAG, "station "MACSTR "leave, AID=%d",
+                     MAC2STR(((wifi_event_ap_stadisconnected_t*)event_data)->mac),
+                     ((wifi_event_ap_stadisconnected_t*)event_data)->aid);
             break;
 
         default:
@@ -129,7 +143,7 @@ static void event_handler(void *arg,
     }
     else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ESP_LOGI(TAG, "Got IP");
-      //  smartconfig_stop();     
+      //  smartconfig_stop();
         s_sta_connecting = false;
         s_retry_count = 0;
         xEventGroupSetBits(s_wifi_event_group, WIFI_CFG_CONNECTED_BIT);
@@ -155,7 +169,7 @@ static void event_handler(void *arg,
         case SC_EVENT_SEND_ACK_DONE:
             ESP_LOGI(TAG, "SmartConfig Done");
             xEventGroupSetBits(s_wifi_event_group, WIFI_CFG_SC_DONE_BIT);
-            smartconfig_stop();     
+            smartconfig_stop();
             break;
 
         default:
@@ -169,8 +183,10 @@ esp_err_t wifi_apply_config(const char *ssid, const char *password)
 {
     wifi_config_t cfg = {0};
 
-    strncpy((char *)cfg.sta.ssid, ssid, sizeof(cfg.sta.ssid));
-    strncpy((char *)cfg.sta.password, password, sizeof(cfg.sta.password));
+    strncpy((char *)cfg.sta.ssid, ssid, sizeof(cfg.sta.ssid) - 1); // -1 for null terminator
+    cfg.sta.ssid[sizeof(cfg.sta.ssid) - 1] = '\0';
+    strncpy((char *)cfg.sta.password, password, sizeof(cfg.sta.password) - 1); // -1 for null terminator
+    cfg.sta.password[sizeof(cfg.sta.password) - 1] = '\0';
 
     ESP_LOGI(TAG, "Apply WiFi: %s", ssid);
 
@@ -214,12 +230,12 @@ esp_err_t wifi_smartconfig_sta(void)
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(SC_EVENT, ESP_EVENT_ANY_ID, event_handler, NULL));
-    
+
     vTaskDelay(pdMS_TO_TICKS(100)); // STA 启动缓冲
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    // ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA)); // 不在这里设置模式，web_prov_start 或 smartconfig_start 会设置
 
     /* ---------- 启动 WiFi ---------- */
-    ESP_ERROR_CHECK(esp_wifi_start());
+    // ESP_ERROR_CHECK(esp_wifi_start()); // 不在这里启动，web_prov_start 或 smartconfig_start 会启动
 
     /* ---------- 判断是否已有 WiFi ---------- */
     wifi_config_t wifi_cfg;
@@ -232,6 +248,8 @@ esp_err_t wifi_smartconfig_sta(void)
         s_prov_mode = WIFI_PROV_NONE;
         s_retry_count = 0;
 
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA)); // 设置为 STA 模式
+        esp_wifi_start(); // 启动 WiFi
         esp_wifi_connect();
 
         // 🔥 等待连接成功或超时
@@ -273,22 +291,40 @@ esp_err_t wifi_smartconfig_sta(void)
                 1
                 );
         }
+    } else { // 没有找到保存的 WiFi，直接进入 Web 配网模式
+        ESP_LOGI(TAG, "No saved WiFi found, starting Web Provisioning.");
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA)); // Web 配网需要 AP+STA 模式
+        esp_wifi_start(); // 启动 WiFi
+        web_prov_start(); // 启动 Web 配网逻辑
     }
+
 
     return ESP_OK;
 }
 
 
 /* ================= 等待连接 ================= */
-void wifi_config_wait_connected(void)
+esp_err_t wifi_config_wait_connected(void)
 {
-    xEventGroupWaitBits(
+    ESP_LOGI("WIFI", "等待 WiFi 连接...");
+
+    // 等待连接位或错误位（建议增加一个 FAIL_BIT）
+    EventBits_t bits = xEventGroupWaitBits(
         s_wifi_event_group,
-        WIFI_CFG_CONNECTED_BIT,
-        false,
-        true,
-        portMAX_DELAY
+        WIFI_CFG_CONNECTED_BIT, // 你可以顺便加上错误位，如 | WIFI_FAIL_BIT
+        pdFALSE,                // 执行完不清除位
+        pdTRUE,                 // 等待所有位（如果只有一个位则无所谓）
+        pdMS_TO_TICKS(30000)    // ⭐ 优化点：设置30秒超时，不要死等
     );
+
+    // 检查返回的结果
+    if (bits & WIFI_CFG_CONNECTED_BIT) {
+        ESP_LOGI("WIFI", "WiFi 连接成功！");
+        return ESP_OK;
+    } else {
+        ESP_LOGE("WIFI", "WiFi 连接超时或失败");
+        return ESP_FAIL;
+    }
 }
 
 EventGroupHandle_t wifi_config_get_event_group(void)
@@ -315,343 +351,55 @@ static void smartconfig_task(void *parm)
         EventBits_t bits = xEventGroupWaitBits(
             s_wifi_event_group,
             WIFI_CFG_CONNECTED_BIT | WIFI_CFG_SC_DONE_BIT,
-            false,
-            false,
+            pdFALSE, // 执行完不清除位
+            pdFALSE, // 等待任何一个位，而不是所有位
             portMAX_DELAY
         );
 
         if (bits & WIFI_CFG_CONNECTED_BIT) {
             ESP_LOGI(TAG, "WiFi Connected");
-           // esp_smartconfig_stop();
+            // esp_smartconfig_stop(); // 连接成功后停止 SmartConfig
             // s_smartconfig_started = false;
             // vTaskDelete(NULL);
-            vTaskDelay(pdMS_TO_TICKS(300));
+            xEventGroupClearBits(s_wifi_event_group, WIFI_CFG_CONNECTED_BIT); // 清除位，避免重复处理
+            smartconfig_stop(); // 停止 SmartConfig，防止与 web prov 冲突
+            vTaskDelete(NULL); // 任务完成自毁
         }
 
         if (bits & WIFI_CFG_SC_DONE_BIT) {
-            esp_smartconfig_stop();
+            ESP_LOGI(TAG, "SmartConfig Done Bit Set"); // SC_EVENT_SEND_ACK_DONE 会设置此位
+            // 这里不需要再次调用 esp_smartconfig_stop()，因为 SC_EVENT_SEND_ACK_DONE 的事件处理函数已经调用了 smartconfig_stop()
             s_smartconfig_started = false;
             vTaskDelete(NULL);
         }
     }
 }
 
-#define MAX_SCAN_RESULTS 20
-typedef struct {
-    char ssid[33];  // SSID + '\0'
-    int8_t rssi;
-} scan_result_t;
+// 移除以下全局变量和函数，它们将移动到 web_server_handlers.c
+
+// #define MAX_SCAN_RESULTS 20
+// typedef struct {
+//     char ssid[33];  // SSID + '\0'
+//     int8_t rssi;
+// } scan_result_t;
+
+// static scan_result_t g_scan_results[MAX_SCAN_RESULTS];
+// static int g_scan_count = 0;
+// static bool scan_done = false;
+
+// static void wifi_scan_done_cb(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) { ... }
+// esp_err_t wifi_scan_handler(httpd_req_t *req) { ... }
+// esp_err_t connect_wifi_handler(httpd_req_t *req) { ... }
+
+// data_config_t g_data_config; // 移除，或者改为局部使用
+// esp_err_t load_data_config(data_config_t *config) { ... }
+// esp_err_t save_data_config(data_config_t *config) { ... }
+
+// esp_err_t save_config_handler(httpd_req_t *req) { ... }
+// esp_err_t usb_files_handler(httpd_req_t *req) { ... }
+// esp_err_t get_config_handler(httpd_req_t *req) { ... }
+// esp_err_t get_wifi_info_handler(httpd_req_t *req) { ... }
 
-static scan_result_t g_scan_results[MAX_SCAN_RESULTS];
-static int g_scan_count = 0;
-static bool scan_done = false;
-
-// 扫描完成回调
-static void wifi_scan_done_cb(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data)
-{
-    uint16_t ap_num = 0;
-    esp_wifi_scan_get_ap_num(&ap_num);
-    if (ap_num > MAX_SCAN_RESULTS) ap_num = MAX_SCAN_RESULTS;
-
-    wifi_ap_record_t ap_records[MAX_SCAN_RESULTS];
-    esp_wifi_scan_get_ap_records(&ap_num, ap_records);
-
-    g_scan_count = 0;
-    for (int i = 0; i < ap_num; i++) {
-        bool found = false;
-        for (int j = 0; j < g_scan_count; j++) {
-            if (strcmp((char*)ap_records[i].ssid, g_scan_results[j].ssid) == 0) {
-                found = true;
-                if (ap_records[i].rssi > g_scan_results[j].rssi)
-                    g_scan_results[j].rssi = ap_records[i].rssi;
-                break;
-            }
-        }
-        if (!found) {
-            strncpy(g_scan_results[g_scan_count].ssid, (char*)ap_records[i].ssid, 32);
-            g_scan_results[g_scan_count].ssid[32] = 0;
-            g_scan_results[g_scan_count].rssi = ap_records[i].rssi;
-            g_scan_count++;
-        }
-    }
-    scan_done = true;
-}
-
-esp_err_t wifi_scan_handler(httpd_req_t *req)
-{
-    scan_done = false;
-
-    wifi_scan_config_t cfg = {0};
-    esp_wifi_scan_start(&cfg, false); // 异步扫描
-    esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &wifi_scan_done_cb, NULL);
-
-    // 等待扫描完成（最多 3 秒）
-    int wait_ms = 0;
-    while (!scan_done && wait_ms < 3000) {
-        vTaskDelay(pdMS_TO_TICKS(100));
-        wait_ms += 100;
-    }
-
-    // ===== 按 RSSI 排序（信号强优先）=====
-    for (int i = 0; i < g_scan_count - 1; i++) {
-        for (int j = i + 1; j < g_scan_count; j++) {
-            if (g_scan_results[j].rssi > g_scan_results[i].rssi) {
-                scan_result_t temp = g_scan_results[i];
-                g_scan_results[i] = g_scan_results[j];
-                g_scan_results[j] = temp;
-            }
-        }
-    }
-
-    // ===== 构建 JSON =====
-    cJSON *root = cJSON_CreateArray();
-
-    for (int i = 0; i < g_scan_count; i++) {
-
-        if (strlen((char*)g_scan_results[i].ssid) == 0)
-            continue;   // 过滤空SSID
-
-        cJSON *item = cJSON_CreateObject();
-        cJSON_AddStringToObject(item, "ssid", (char*)g_scan_results[i].ssid);
-        cJSON_AddNumberToObject(item, "rssi", g_scan_results[i].rssi);
-
-        cJSON_AddItemToArray(root, item);
-    }
-
-    char *json_string = cJSON_PrintUnformatted(root);
-
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, json_string, HTTPD_RESP_USE_STRLEN);
-
-    cJSON_Delete(root);
-    free(json_string);
-
-    return ESP_OK;
-}
-
-esp_err_t connect_wifi_handler(httpd_req_t *req)
-{
-    char buf[256] = {0};
-    int total_len = req->content_len;
-    int cur_len = 0;
-    int received = 0;
-
-    if (total_len >= sizeof(buf)) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Content too long");
-        return ESP_FAIL;
-    }
-
-    // 读取完整 POST 数据
-    while (cur_len < total_len) {
-        received = httpd_req_recv(req, buf + cur_len, total_len - cur_len);
-        if (received <= 0) {
-            return ESP_FAIL;
-        }
-        cur_len += received;
-    }
-
-    buf[total_len] = '\0';
-
-    ESP_LOGI(TAG, "POST DATA: %s", buf);
-
-    // 🔥 解析 JSON
-    cJSON *root = cJSON_Parse(buf);
-    if (!root) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
-        return ESP_FAIL;
-    }
-
-    const cJSON *ssid_item = cJSON_GetObjectItem(root, "ssid");
-    const cJSON *pwd_item  = cJSON_GetObjectItem(root, "password");
-
-    if (!cJSON_IsString(ssid_item) || !cJSON_IsString(pwd_item)) {
-        cJSON_Delete(root);
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid parameters");
-        return ESP_FAIL;
-    }
-
-    const char *ssid = ssid_item->valuestring;
-    const char *password = pwd_item->valuestring;
-
-    ESP_LOGI(TAG, "SSID: %s", ssid);
-    ESP_LOGI(TAG, "Password: %s", password);
-
-    if (strlen(ssid) == 0) {
-        cJSON_Delete(root);
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "SSID empty");
-        return ESP_FAIL;
-    }
-
-    wifi_apply_config(ssid, password);
-
-    cJSON_Delete(root);
-
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_sendstr(req, "{\"status\":\"connecting\"}");
-
-    return ESP_OK;
-}
-
-
-data_config_t g_data_config;
-
-esp_err_t load_data_config(data_config_t *config)
-{
-    nvs_handle_t handle;
-    esp_err_t err = nvs_open("storage", NVS_READONLY, &handle);
-    if (err != ESP_OK) return err;
-
-    size_t required_size = sizeof(data_config_t);
-    err = nvs_get_blob(handle, "data_config", config, &required_size);
-
-    nvs_close(handle);
-    return err;
-}
-
-esp_err_t save_data_config(data_config_t *config)
-{
-    nvs_handle_t handle;
-    esp_err_t err = nvs_open("storage", NVS_READWRITE, &handle);  // "storage" 是命名空间
-    if (err != ESP_OK) return err;
-
-    // 写入结构体
-    err = nvs_set_blob(handle, "data_config", config, sizeof(data_config_t));
-    if (err == ESP_OK) {
-        err = nvs_commit(handle); // 提交写入
-    }
-
-    nvs_close(handle);
-    return err;
-}
-
-esp_err_t save_config_handler(httpd_req_t *req)
-{
-    char buf[128];
-    int ret = httpd_req_recv(req, buf, req->content_len);
-    if (ret <= 0) return ESP_FAIL;
-    buf[ret] = 0;
-
-    cJSON *json = cJSON_Parse(buf);
-    if (!json) return ESP_FAIL;
-
-    const cJSON *local = cJSON_GetObjectItem(json, "localFile");
-    const cJSON *server = cJSON_GetObjectItem(json, "uploadServer");
-
-    if (local && server) {
-        strncpy(g_data_config.local_file, local->valuestring, sizeof(g_data_config.local_file)-1);
-        strncpy(g_data_config.upload_server, server->valuestring, sizeof(g_data_config.upload_server)-1);
-    }
-    ESP_LOGI(TAG, "local: %s upload_server: %s",g_data_config.local_file,g_data_config.upload_server);
-    save_data_config(&g_data_config);
-    cJSON_Delete(json);
-    httpd_resp_sendstr(req, "OK");
-    return ESP_OK;
-}
-
-esp_err_t usb_files_handler(httpd_req_t *req)
-{
-    DIR *dir;
-    struct dirent *entry;
-
-    cJSON *root = cJSON_CreateArray();
-    ESP_LOGI("USB", "usb_files_handler CALLED");
-    if (!root)
-    {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "JSON create failed");
-        return ESP_FAIL;
-    }
-
-    dir = opendir("/disk");
-    if (dir == NULL)
-    {
-        ESP_LOGE(TAG, "Failed to open /disk");
-        cJSON_Delete(root);
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_sendstr(req, "[]");
-        return ESP_OK;
-    }
-
-    while ((entry = readdir(dir)) != NULL)
-    {
-        if (strcmp(entry->d_name, ".") == 0 ||
-            strcmp(entry->d_name, "..") == 0 ||
-            strcmp(entry->d_name, "System Volume Information") == 0)
-            continue;
-
-        cJSON_AddItemToArray(root,
-                             cJSON_CreateString(entry->d_name));
-    }
-
-    closedir(dir);
-
-    char *json_string = cJSON_PrintUnformatted(root);
-
-    if (json_string == NULL) {
-        httpd_resp_sendstr(req, "[]");
-        cJSON_Delete(root);
-        return ESP_OK;
-    }
-
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_sendstr(req, json_string);
-
-    cJSON_free(json_string);
-    cJSON_Delete(root);
-
-    return ESP_OK;
-}
-
-esp_err_t get_config_handler(httpd_req_t *req)
-{
-    cJSON *root = cJSON_CreateObject();
-
-    // 从 NVS 读取
-    data_config_t cfg;
-    if(load_data_config(&cfg) != ESP_OK) {
-        strcpy(cfg.local_file, "未设置");
-        strcpy(cfg.upload_server, "");
-    }
-
-    cJSON_AddStringToObject(root, "localFile", cfg.local_file);
-    cJSON_AddStringToObject(root, "uploadServer", cfg.upload_server);
-
-    char *out = cJSON_PrintUnformatted(root);
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, out, strlen(out));
-
-    cJSON_Delete(root);
-    free(out);
-    return ESP_OK;
-}
-
-esp_err_t get_wifi_info_handler(httpd_req_t *req)
-{
-    wifi_config_t wifi_cfg;
-    memset(&wifi_cfg, 0, sizeof(wifi_cfg));
-
-    cJSON *root = cJSON_CreateObject();
-
-    if (esp_wifi_get_config(WIFI_IF_STA, &wifi_cfg) == ESP_OK &&
-        strlen((char *)wifi_cfg.sta.ssid) > 0)
-    {
-        cJSON_AddStringToObject(root, "ssid", (char *)wifi_cfg.sta.ssid);
-        cJSON_AddStringToObject(root, "password", (char *)wifi_cfg.sta.password);
-    }
-    else
-    {
-        cJSON_AddStringToObject(root, "ssid", "");
-        cJSON_AddStringToObject(root, "password", "");
-    }
-
-    char *out = cJSON_PrintUnformatted(root);
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, out, strlen(out));
-
-    cJSON_Delete(root);
-    free(out);
-
-    return ESP_OK;
-}
 
 void print_current_time(void) {
     time_t now;
@@ -666,25 +414,25 @@ void print_current_time(void) {
 
 void initialize_sntp_v5(void) {
     ESP_LOGI(TAG, "Using ESP-IDF v5.0+ SNTP API");
-    
+
     // 设置时区
     setenv("TZ", "CST-8", 1);
     tzset();
-    
+
     // 使用新的 API
     esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG_MULTIPLE(
         3,  // 服务器数量
         ESP_SNTP_SERVER_LIST("pool.ntp.org", "time1.cloud.tencent.com", "ntp.aliyun.com")
     );
-    
+
     config.start = true;
     config.server_from_dhcp = false;
     config.renew_servers_after_new_IP = true;
     config.index_of_first_server = 0;
     config.ip_event_to_renew = IP_EVENT_STA_GOT_IP;
-    
+
     esp_netif_sntp_init(&config);
-    
+
     // 等待同步
     if (esp_netif_sntp_sync_wait(pdMS_TO_TICKS(30000)) != ESP_OK) {
         ESP_LOGW(TAG, "Failed to synchronize time within 30s");
@@ -697,12 +445,70 @@ void initialize_sntp_v5(void) {
 
 void wifi_background_task(void *pv)
 {
-    ESP_LOGI("WIFI", "WiFi background start");
-    // 强制 WiFi 保持全功率运行，不进入休眠
-    esp_wifi_set_ps(WIFI_PS_NONE); 
-    ESP_LOGW("MAIN", "WiFi 节能模式已关闭，提升通信稳定性");
+    ESP_LOGI("WIFI", "WiFi background task started");
+
+    // 1. 强制关闭节能模式，确保配网和后续数据传输的稳定性
+    esp_wifi_set_ps(WIFI_PS_NONE);
+    ESP_LOGW("WIFI", "WiFi Power Save Disabled for stability");
+
+    // 2. 【核心】启动智能配网模式
+    // 注意：该函数内部通常会配置 WiFi 为 STA 模式并开启 SmartConfig 监听
     wifi_smartconfig_sta();
-    wifi_config_wait_connected();
+
+    // 3. 等待 WiFi 连接成功
+    // 这里的 wait 函数应该在监听到 SmartConfig 成功获取信息并连接后才会返回 ESP_OK
+    ESP_LOGI("WIFI", "Waiting for WiFi connection (SmartConfig/WebProv)...");
+    if (wifi_config_wait_connected() != ESP_OK) {
+        ESP_LOGE("WIFI", "WiFi connection failed or timeout.");
+        // 如果连接失败，并且当前不是 Web 配网模式，可以考虑再次启动 Web 配网
+        if (s_prov_mode != WIFI_PROV_WEB) {
+            ESP_LOGW("WIFI", "WiFi connection failed, re-starting Web Provisioning.");
+            // 需要重新启动 AP 模式并启动 Web 服务器，这里只是一个示例
+            // 确保 web_server_start() 不在循环中被多次调用
+            // web_prov_start(); // 重新启动 AP 模式
+            // web_server_start(); // 重新启动 Web 服务器（如果已经停止）
+            // 注意：web_server_start() 在 main.c 中调用，这里不应重复调用
+            // 可以在这里设置一个标志，让 web_server_start 在 main.c 中只启动一次
+            // 或者设计一个状态机来管理配网流程
+        }
+        vTaskDelete(NULL);
+        return;
+    }
+
+    // 4. 获取网络时间 (SNTP)
+    // 很多云端登录需要校验时间戳，建议在登录前同步时间
     initialize_sntp_v5();
-    vTaskDelete(NULL);
+    // 简单等待同步（根据你的 snttp 实现，可能需要几秒钟）
+    vTaskDelay(pdMS_TO_TICKS(2000));
+
+    // 5. 登录并获取服务器文件列表
+    login_response_t resp = {0};
+    int retry_count = 3;
+    bool sync_success = false;
+
+    while (retry_count-- > 0 && !sync_success) {
+        ESP_LOGI("WIFI", "Connecting to cloud... (Attempts left: %d)", retry_count + 1);
+
+        if (http_login(&resp)) {
+            // 登录成功，抓取产品列表存入 g_http_resp.buffer
+            if (http_get_all_products(resp.token)) {
+                ESP_LOGI("WIFI", "Product list synced and cached.");
+                sync_success = true;
+            } else {
+                ESP_LOGE("WIFI", "Failed to fetch product list.");
+            }
+        }
+        else {
+            ESP_LOGE("WIFI", "Cloud login failed.");
+        }
+
+        if (!sync_success && retry_count > 0) {
+            vTaskDelay(pdMS_TO_TICKS(5000)); // 失败后等 5 秒再试
+        }
+    }
+
+    ESP_LOGI("WIFI", "Background task finished. Status: %s", sync_success ? "DONE" : "FAILED");
+    
+    // 任务完成后自毁，释放栈空间
+    vTaskDelete(NULL); 
 }

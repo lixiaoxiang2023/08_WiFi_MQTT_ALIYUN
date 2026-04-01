@@ -42,7 +42,7 @@ EventGroupHandle_t wifi_config_get_event_group(void);
 /* 声明函数 */
 esp_err_t wifi_smartconfig_sta(void);
 /* 阻塞等待 WiFi 连接成功（拿到 IP） */
-void wifi_config_wait_connected(void);
+esp_err_t wifi_config_wait_connected(void);
 esp_err_t wifi_apply_config(const char *ssid, const char *password);
 esp_err_t wifi_scan_handler(httpd_req_t *req);
 esp_err_t connect_wifi_handler(httpd_req_t *req);
