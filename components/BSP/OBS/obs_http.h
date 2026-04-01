@@ -21,11 +21,11 @@
 extern "C" {
 #endif
 
-#define LOGIC_URL      "http://192.168.200.21:8088/my/login"
+#define LOGIC_URL      "http://111.59.118.25:18083/my/login"
 #define LOGIC_NAME     "lixiaoxiang"
 #define LOGIC_PASSWORD "Lixiaoxiang001"
 
-#define DOWNLOAD_URL    "http://192.168.200.21:8088/software/getavailableversion"
+#define DOWNLOAD_URL    "http://111.59.118.25:18083/software/getavailableversion"
 #define PRODUCT_CODE   "test_code"
 #define PLAT_FORM_CODE "mcu"
 #define VERSION         "v1.0.0"
