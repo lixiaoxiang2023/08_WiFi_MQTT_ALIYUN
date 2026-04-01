@@ -631,67 +631,181 @@ bool http_login(login_response_t *resp)
  * @param token 登录获取的 Bearer Token
  * @return true 成功 / false 失败
  */
-bool http_get_all_products(const char *token)
-{
-    if (token == NULL) return false;
+// bool http_get_all_products(const char *token)
+// {
+//     if (token == NULL) return false;
 
-    // 1. 清理并准备响应缓存
-    memset(&g_http_resp, 0, sizeof(g_http_resp));
+//     // 1. 清理并准备响应缓存
+//     memset(&g_http_resp, 0, sizeof(g_http_resp));
+//     if (g_http_resp.buffer == NULL) {
+//         g_http_resp.buffer = malloc(MAX_HTTP_OUTPUT_BUFFER);
+//     }
+//     if (!g_http_resp.buffer) return false;
+//     memset(g_http_resp.buffer, 0, MAX_HTTP_OUTPUT_BUFFER);
+
+//     // 2. 配置 HTTP 客户端
+//     esp_http_client_config_t config = {
+//         .url = GET_PRODUCTS_URL,
+//         .method = HTTP_METHOD_GET,     // 
+//         .timeout_ms = 30000,
+//         .event_handler = urit_http_event_handler,
+//         .user_data = &g_http_resp,
+//         .buffer_size = 2048,           // 预防 Header 过长
+//     };
+
+//     esp_http_client_handle_t client = esp_http_client_init(&config);
+//     if (!client) {
+//         return false;
+//     }
+
+//     // 3. 设置鉴权 Header
+//     char auth_header[600];
+//     snprintf(auth_header, sizeof(auth_header), "Bearer %s", token);
+//     esp_http_client_set_header(client, "Authorization", auth_header);
+
+//     ESP_LOGI("HTTP", ">>>>>>>>> [DEBUG] GET PRODUCTS >>>>>>>>>");
+//     ESP_LOGI("HTTP", "URL: %s", config.url);
+
+//     // 4. 执行请求
+//     esp_err_t err = esp_http_client_perform(client);
+    
+//     bool success = false;
+//     if (err == ESP_OK) {
+//         int status = esp_http_client_get_status_code(client);
+//         if (status == 200 && g_http_resp.len > 0) {
+//             // 确保字符串正常结束
+//             g_http_resp.buffer[g_http_resp.len < MAX_HTTP_OUTPUT_BUFFER ? g_http_resp.len : MAX_HTTP_OUTPUT_BUFFER - 1] = '\0';
+            
+//             ESP_LOGI("HTTP", "<<<<<<<<< [RECV] PRODUCTS LIST <<<<<<<<<");
+//             ESP_LOGI("HTTP", "JSON: %s", (char*)g_http_resp.buffer);
+//             success = true;
+//         } else {
+//             ESP_LOGE("HTTP", "请求失败，状态码: %d", status);
+//         }
+//     } else {
+//         ESP_LOGE("HTTP", "HTTP 执行错误: %s", esp_err_to_name(err));
+//     }
+
+//     // 5. 清理资源
+//     esp_http_client_cleanup(client);
+//     return success;
+// }
+
+
+/**
+ * @brief 内部通用 GET 请求函数
+ */
+static bool http_execute_get_request(const char *url, const char *token) {
+    if (url == NULL || token == NULL) return false;
+
+    // 1. 准备/清理缓存
     if (g_http_resp.buffer == NULL) {
         g_http_resp.buffer = malloc(MAX_HTTP_OUTPUT_BUFFER);
     }
     if (!g_http_resp.buffer) return false;
+    
     memset(g_http_resp.buffer, 0, MAX_HTTP_OUTPUT_BUFFER);
+    g_http_resp.len = 0; 
 
     // 2. 配置 HTTP 客户端
-    const char *target_url = "http://111.59.118.25:18083/software/getallproducts";
     esp_http_client_config_t config = {
-        .url = target_url,
-        .method = HTTP_METHOD_GET,     // ⭐ 根据你提供的逻辑，这里使用 GET
-        .timeout_ms = 30000,
+        .url = url,
+        .method = HTTP_METHOD_GET,
+        .timeout_ms = 30000, 
         .event_handler = urit_http_event_handler,
         .user_data = &g_http_resp,
-        .buffer_size = 2048,           // 预防 Header 过长
+        .buffer_size = 2048,
     };
 
     esp_http_client_handle_t client = esp_http_client_init(&config);
-    if (!client) {
-        return false;
-    }
+    if (!client) return false;
 
     // 3. 设置鉴权 Header
     char auth_header[600];
     snprintf(auth_header, sizeof(auth_header), "Bearer %s", token);
     esp_http_client_set_header(client, "Authorization", auth_header);
 
-    ESP_LOGI("HTTP", ">>>>>>>>> [DEBUG] GET PRODUCTS >>>>>>>>>");
-    ESP_LOGI("HTTP", "URL: %s", target_url);
+    ESP_LOGI("HTTP", "请求 URL: %s", url);
 
     // 4. 执行请求
     esp_err_t err = esp_http_client_perform(client);
-    
     bool success = false;
+
     if (err == ESP_OK) {
         int status = esp_http_client_get_status_code(client);
         if (status == 200 && g_http_resp.len > 0) {
             // 确保字符串正常结束
-            g_http_resp.buffer[g_http_resp.len < MAX_HTTP_OUTPUT_BUFFER ? g_http_resp.len : MAX_HTTP_OUTPUT_BUFFER - 1] = '\0';
+            uint32_t safe_len = (g_http_resp.len < MAX_HTTP_OUTPUT_BUFFER) ? g_http_resp.len : (MAX_HTTP_OUTPUT_BUFFER - 1);
+            g_http_resp.buffer[safe_len] = '\0';
+
+            // --- 重点：使用 ESP_LOGI 打印数据 ---
+            ESP_LOGI("HTTP", "接收成功! 状态码: %d, 字节数: %d", status, g_http_resp.len);
             
-            ESP_LOGI("HTTP", "<<<<<<<<< [RECV] PRODUCTS LIST <<<<<<<<<");
-            ESP_LOGI("HTTP", "JSON: %s", (char*)g_http_resp.buffer);
+            // 如果数据可能很长，分段打印（每段 200 字节）
+            char *data_ptr = (char*)g_http_resp.buffer;
+            int remaining = strlen(data_ptr);
+            int offset = 0;
+            const int chunk_size = 200; // 安全的分段长度
+
+            ESP_LOGI("HTTP", "--- [JSON 内容开始] ---");
+            while (remaining > 0) {
+                int show = (remaining > chunk_size) ? chunk_size : remaining;
+                // 使用 %.长度s 来打印指定长度的子串
+                ESP_LOGI("HTTP", "%.*s", show, data_ptr + offset);
+                offset += show;
+                remaining -= show;
+            }
+            ESP_LOGI("HTTP", "--- [JSON 内容结束] ---");
+            
             success = true;
         } else {
-            ESP_LOGE("HTTP", "请求失败，状态码: %d", status);
+            ESP_LOGE("HTTP", "请求失败! 状态码: %d", status);
         }
     } else {
-        ESP_LOGE("HTTP", "HTTP 执行错误: %s", esp_err_to_name(err));
+        ESP_LOGE("HTTP", "传输错误: %s", esp_err_to_name(err));
     }
 
-    // 5. 清理资源
     esp_http_client_cleanup(client);
     return success;
 }
 
+/**
+ * @brief 1. 获取所有产品列表
+ */
+bool http_get_all_products(const char *token) {
+    ESP_LOGI("HTTP", ">>>>>> [STEP 1] GET ALL PRODUCTS >>>>>>");
+    bool ret = http_execute_get_request(GET_PRODUCTS_URL, token);
+    if (ret) {
+        ESP_LOGD("HTTP", "PRODUCTS JSON: %s", (char*)g_http_resp.buffer);
+    }
+    return ret;
+}
+
+/**
+ * @brief 2. 获取产品平台列表
+ */
+bool http_get_product_platforms(const char *token) {
+    ESP_LOGI("HTTP", ">>>>>> [STEP 2] GET PRODUCT PLATFORMS >>>>>>");
+    bool ret = http_execute_get_request(GET_PLATFORMS_URL, token);
+    if (ret) {
+        ESP_LOGD("HTTP", "PLATFORMS JSON: %s", (char*)g_http_resp.buffer);
+    }
+    return ret;
+}
+
+/**
+ * @brief 3. 获取平台所有版本列表
+ */
+bool http_get_platform_versions(const char *token) {
+    ESP_LOGI("HTTP", ">>>>>> [STEP 3] GET PLATFORM VERSIONS >>>>>>");
+    // 注意：如果此接口需要动态参数（如 ?platform=xxx），
+    // 建议在此处使用 snprintf 拼接 URL 后再传给 execute 函数
+    bool ret = http_execute_get_request(GET_VERSIONS_URL, token);
+    if (ret) {
+        ESP_LOGD("HTTP", "VERSIONS JSON: %s", (char*)g_http_resp.buffer);
+    }
+    return ret;
+}
 // 全变量定义
 ota_info_t g_download_info = {0};
 

@@ -127,20 +127,39 @@ void key_scan_task(void *arg)
         {
             case KEY0_PRES:
             {
-                ESP_LOGI("MAIN", "KEY0 按键触发：开始同步产品列表...");
-                login_response_t resp = {0};
+                ESP_LOGI("MAIN", ">>>>>> 开始全量数据同步流程 <<<<<<");
+                login_response_t login_resp = {0};
 
-                // 1. 先登录拿 Token
-                if (http_login(&resp)) {
-                    // 2. 获取产品列表 (该函数会将 JSON 存在 g_http_resp.buffer 中)
-                    if (http_get_all_products(resp.token)) {
-                        ESP_LOGI("MAIN", "同步成功，数据已缓存，等待网页刷新。");
-                    } else {
-                        ESP_LOGE("MAIN", "产品获取失败");
-                    }
-                } else {
-                    ESP_LOGE("MAIN", "登录失败，无法同步产品");
+                // 1. 登录获取 Token
+                if (!http_login(&login_resp)) {
+                    ESP_LOGE("MAIN", "步骤1失败: 登录鉴权未通过");
+                    break; 
                 }
+                const char* token = login_resp.token;
+
+                // 2. 获取产品列表 (Products)
+                if (http_get_all_products(token)) {
+                    ESP_LOGI("MAIN", "步骤2成功: 已获取产品列表");
+                    // 这里建议立即处理 g_http_resp.buffer，比如解析出产品ID或存入其他变量
+                } else {
+                    ESP_LOGE("MAIN", "步骤2失败: 产品列表拉取异常");
+                }
+
+                // 3. 获取平台列表 (Platforms)
+                if (http_get_product_platforms(token)) {
+                    ESP_LOGI("MAIN", "步骤3成功: 已获取平台列表");
+                } else {
+                    ESP_LOGE("MAIN", "步骤3失败: 平台列表拉取异常");
+                }
+
+                // 4. 获取版本列表 (Versions)
+                if (http_get_platform_versions(token)) {
+                    ESP_LOGI("MAIN", "步骤4成功: 已获取版本列表");
+                } else {
+                    ESP_LOGE("MAIN", "步骤4失败: 版本列表拉取异常");
+                }
+
+                ESP_LOGI("MAIN", ">>>>>> 同步流程结束，数据已更新至全局缓存 <<<<<<");
                 break;
             }
             case KEY1_PRES:

@@ -232,10 +232,10 @@ esp_err_t wifi_smartconfig_sta(void)
     ESP_ERROR_CHECK(esp_event_handler_register(SC_EVENT, ESP_EVENT_ANY_ID, event_handler, NULL));
 
     vTaskDelay(pdMS_TO_TICKS(100)); // STA 启动缓冲
-    // ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA)); // 不在这里设置模式，web_prov_start 或 smartconfig_start 会设置
+     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA)); // 不在这里设置模式，web_prov_start 或 smartconfig_start 会设置
 
     /* ---------- 启动 WiFi ---------- */
-    // ESP_ERROR_CHECK(esp_wifi_start()); // 不在这里启动，web_prov_start 或 smartconfig_start 会启动
+     ESP_ERROR_CHECK(esp_wifi_start()); // 不在这里启动，web_prov_start 或 smartconfig_start 会启动
 
     /* ---------- 判断是否已有 WiFi ---------- */
     wifi_config_t wifi_cfg;
@@ -248,8 +248,6 @@ esp_err_t wifi_smartconfig_sta(void)
         s_prov_mode = WIFI_PROV_NONE;
         s_retry_count = 0;
 
-        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA)); // 设置为 STA 模式
-        esp_wifi_start(); // 启动 WiFi
         esp_wifi_connect();
 
         // 🔥 等待连接成功或超时
@@ -291,14 +289,7 @@ esp_err_t wifi_smartconfig_sta(void)
                 1
                 );
         }
-    } else { // 没有找到保存的 WiFi，直接进入 Web 配网模式
-        ESP_LOGI(TAG, "No saved WiFi found, starting Web Provisioning.");
-        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA)); // Web 配网需要 AP+STA 模式
-        esp_wifi_start(); // 启动 WiFi
-        web_prov_start(); // 启动 Web 配网逻辑
-    }
-
-
+    } 
     return ESP_OK;
 }
 
@@ -314,16 +305,15 @@ esp_err_t wifi_config_wait_connected(void)
         WIFI_CFG_CONNECTED_BIT, // 你可以顺便加上错误位，如 | WIFI_FAIL_BIT
         pdFALSE,                // 执行完不清除位
         pdTRUE,                 // 等待所有位（如果只有一个位则无所谓）
-        pdMS_TO_TICKS(30000)    // ⭐ 优化点：设置30秒超时，不要死等
+        portMAX_DELAY    // ⭐ 优化点：设置30秒超时，不要死等
     );
-
-    // 检查返回的结果
+    // 修复点：必须根据等待结果返回 bool 值
     if (bits & WIFI_CFG_CONNECTED_BIT) {
-        ESP_LOGI("WIFI", "WiFi 连接成功！");
-        return ESP_OK;
+        ESP_LOGI("WIFI", "连接成功");
+        return true; 
     } else {
-        ESP_LOGE("WIFI", "WiFi 连接超时或失败");
-        return ESP_FAIL;
+        ESP_LOGE("WIFI", "连接超时或失败");
+        return false;
     }
 }
 
@@ -361,14 +351,16 @@ static void smartconfig_task(void *parm)
             // esp_smartconfig_stop(); // 连接成功后停止 SmartConfig
             // s_smartconfig_started = false;
             // vTaskDelete(NULL);
-            xEventGroupClearBits(s_wifi_event_group, WIFI_CFG_CONNECTED_BIT); // 清除位，避免重复处理
-            smartconfig_stop(); // 停止 SmartConfig，防止与 web prov 冲突
-            vTaskDelete(NULL); // 任务完成自毁
+            vTaskDelay(pdMS_TO_TICKS(300));
+
+            // xEventGroupClearBits(s_wifi_event_group, WIFI_CFG_CONNECTED_BIT); // 清除位，避免重复处理
+            // smartconfig_stop(); // 停止 SmartConfig，防止与 web prov 冲突
+            // vTaskDelete(NULL); // 任务完成自毁
         }
 
         if (bits & WIFI_CFG_SC_DONE_BIT) {
             ESP_LOGI(TAG, "SmartConfig Done Bit Set"); // SC_EVENT_SEND_ACK_DONE 会设置此位
-            // 这里不需要再次调用 esp_smartconfig_stop()，因为 SC_EVENT_SEND_ACK_DONE 的事件处理函数已经调用了 smartconfig_stop()
+            esp_smartconfig_stop();
             s_smartconfig_started = false;
             vTaskDelete(NULL);
         }
@@ -458,22 +450,7 @@ void wifi_background_task(void *pv)
     // 3. 等待 WiFi 连接成功
     // 这里的 wait 函数应该在监听到 SmartConfig 成功获取信息并连接后才会返回 ESP_OK
     ESP_LOGI("WIFI", "Waiting for WiFi connection (SmartConfig/WebProv)...");
-    if (wifi_config_wait_connected() != ESP_OK) {
-        ESP_LOGE("WIFI", "WiFi connection failed or timeout.");
-        // 如果连接失败，并且当前不是 Web 配网模式，可以考虑再次启动 Web 配网
-        if (s_prov_mode != WIFI_PROV_WEB) {
-            ESP_LOGW("WIFI", "WiFi connection failed, re-starting Web Provisioning.");
-            // 需要重新启动 AP 模式并启动 Web 服务器，这里只是一个示例
-            // 确保 web_server_start() 不在循环中被多次调用
-            // web_prov_start(); // 重新启动 AP 模式
-            // web_server_start(); // 重新启动 Web 服务器（如果已经停止）
-            // 注意：web_server_start() 在 main.c 中调用，这里不应重复调用
-            // 可以在这里设置一个标志，让 web_server_start 在 main.c 中只启动一次
-            // 或者设计一个状态机来管理配网流程
-        }
-        vTaskDelete(NULL);
-        return;
-    }
+    wifi_config_wait_connected();
 
     // 4. 获取网络时间 (SNTP)
     // 很多云端登录需要校验时间戳，建议在登录前同步时间
