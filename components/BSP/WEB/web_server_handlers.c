@@ -13,6 +13,7 @@ extern esp_err_t wifi_apply_config(const char *ssid, const char *password);
 static const char *TAG_WEB_SERVER = "WEB_SERVER_HANDLERS";
 static nvs_handle_t config_nvs_handle; // 统一的 NVS 句柄
 login_response_t g_strResp = {0};
+QueueHandle_t ota_queue = NULL;
 
 // 用于 wifi_scan_handler
 #define MAX_SCAN_RESULTS 20
@@ -236,7 +237,7 @@ esp_err_t save_instrument_config_handler(httpd_req_t *req) {
     load_data_upload_config_from_nvs(&data_config);
 
     cJSON *id_json = cJSON_GetObjectItemCaseSensitive(root, "platform_id");
-    cJSON *name_json = cJSON_GetObjectItemCaseSensitive(root, "platform_name");
+    cJSON *name_json = cJSON_GetObjectItemCaseSensitive(root, "platform_code");
     cJSON *product_code_json = cJSON_GetObjectItemCaseSensitive(root, "product_code");
     cJSON *firmware_version_json = cJSON_GetObjectItemCaseSensitive(root, "firmware_version");
     cJSON *local_file_json = cJSON_GetObjectItemCaseSensitive(root, "localFile");
@@ -703,4 +704,49 @@ esp_err_t get_versions_handler(httpd_req_t *req) {
     }
     httpd_resp_send_500(req);
     return ESP_FAIL;
+}
+
+esp_err_t update_handler(httpd_req_t *req) {
+    char buf[512];
+    int ret = httpd_req_recv(req, buf, req->content_len);
+    if (ret <= 0) return ESP_FAIL;
+    buf[ret] = '\0';
+
+    ESP_LOGI("WEB_SERVER", "收到原始 JSON: %s", buf); // ⭐ 打印出来看看到底有没有 id
+
+    cJSON *root = cJSON_Parse(buf);
+    if (!root) return ESP_FAIL;
+
+    cJSON *ver_item = cJSON_GetObjectItem(root, "firmware_version");
+    
+    if (ver_item && strcmp(ver_item->valuestring, "latest") == 0) {
+        if (ota_queue != NULL) {
+            ota_msg_t msg = {0};
+            
+            cJSON *f_id = cJSON_GetObjectItem(root, "platform_id");
+            
+            // ⭐ 健壮性解析：处理数字或字符串类型的 ID
+            if (cJSON_IsNumber(f_id)) {
+                msg.platform_id = (int64_t)f_id->valuedouble;
+            } else if (cJSON_IsString(f_id)) {
+                msg.platform_id = atoll(f_id->valuestring);
+            } else {
+                msg.platform_id = 0; 
+            }
+
+            ESP_LOGW("WEB_SERVER", "解析后的 Platform ID: %lld", msg.platform_id);
+            if (xQueueSend(ota_queue, &msg, 0) == pdPASS) {
+                httpd_resp_sendstr(req, "OK: 升级指令已加入队列");
+            } else {
+                httpd_resp_send_500(req); 
+            }
+        }
+        cJSON_Delete(root);
+        return ESP_OK;
+    }
+
+    // 原有保存逻辑...
+    httpd_resp_sendstr(req, "配置已保存");
+    cJSON_Delete(root);
+    return ESP_OK;
 }

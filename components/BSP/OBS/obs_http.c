@@ -26,7 +26,7 @@
 #define OBS_MAX_RETRY 3
 #define OBS_RX_BUF   (4* 1024)
 #define OBS_TX_BUF  (4 * 1024)
-#define MAX_HTTP_OUTPUT_BUFFER 2048
+#define MAX_HTTP_OUTPUT_BUFFER 8096
 
 
 http_response_t g_http_resp;
@@ -704,7 +704,7 @@ bool http_get_all_products(const char *token)
  * @param token 鉴权 Token
  * @param json_body JSON 字符串内容
  */
-static bool http_execute_get_with_body(const char *url, const char *token, const char *json_body) {
+bool http_execute_get_with_body(const char *url, const char *token, const char *json_body) {
     if (url == NULL || token == NULL || json_body == NULL) return false;
 
     // 1. 缓存准备
@@ -772,7 +772,7 @@ static bool http_execute_get_with_body(const char *url, const char *token, const
 /**
  * @brief 内部通用 GET 请求函数
  */
-static bool http_execute_get_request(const char *url, const char *token) {
+bool http_execute_get_request(const char *url, const char *token) {
     if (url == NULL || token == NULL) return false;
 
     // 1. 准备/清理缓存

@@ -137,5 +137,9 @@ void app_main(void)
         5,
         NULL
     );
+    ota_queue = xQueueCreate(1, sizeof(ota_msg_t));
+
+    // 2. 创建守护任务（常驻内存）
+    xTaskCreate(ota_daemon_task, "ota_daemon", 8192, NULL, 5, NULL);
 }
 

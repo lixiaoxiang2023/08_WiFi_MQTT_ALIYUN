@@ -22,6 +22,6 @@
 #define __KEY_SCAN_H
 
 void key_scan_task(void *arg);
+void ota_daemon_task(void *pvParameter);
 extern esp_mqtt_client_handle_t client;
-
 #endif

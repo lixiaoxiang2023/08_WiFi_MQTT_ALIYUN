@@ -111,6 +111,15 @@ void web_server_start(void)
             .handler  = get_versions_handler,
             .user_ctx = NULL
         };
+
+        httpd_uri_t update_uri = {
+            .uri       = "/save_instrument_config",
+            .method    = HTTP_POST,
+            .handler   = update_handler,
+            .user_ctx  = NULL
+        };
+
+    httpd_register_uri_handler(server, &update_uri);
     httpd_register_uri_handler(server, &uri_get_versions);
     httpd_register_uri_handler(server, &get_products_uri);
     httpd_register_uri_handler(server, &wifi_info_uri);

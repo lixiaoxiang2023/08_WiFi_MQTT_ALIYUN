@@ -37,7 +37,13 @@ typedef struct {
     char local_file[128];       // 本地文件名称
     char upload_server[128];    // 上传服务器地址或路径
 } data_upload_config_t;
+typedef struct {
+    char product_code[32];
+    char platform_code[32];
+    char firmware_version[32];  
+    int64_t platform_id;
 
+} ota_msg_t;
 
 /**
  * @brief 初始化 NVS 存储。
@@ -45,7 +51,7 @@ typedef struct {
  */
 esp_err_t init_web_config_nvs(void);
 extern login_response_t g_strResp;
-
+extern QueueHandle_t ota_queue;
 /**
  * @brief 将仪器配置保存到 NVS。
  * @param config 要保存的配置结构体指针。
@@ -89,4 +95,5 @@ esp_err_t save_config_handler(httpd_req_t *req); // 用于保存数据上传配�
 esp_err_t get_product_list_handler(httpd_req_t *req);
 esp_err_t get_versions_handler(httpd_req_t *req);
 esp_err_t get_platforms_handler(httpd_req_t *req);
+esp_err_t update_handler(httpd_req_t *req);
 #endif // WEB_SERVER_HANDLERS_H

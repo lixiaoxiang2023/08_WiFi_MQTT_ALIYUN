@@ -32,7 +32,7 @@ static const char *TAG = "MQTT_EXAMPLE";
 char g_lcd_buff[100] = {0};
 
 char g_strReadLocalFileName[64] = {0};//SPIFFS 读文件名
-char g_strWriteLocalFileName[64] = {0};//SPIFFS 写文件名
+char g_strWriteLocalFileName[128] = {0};//SPIFFS 写文件名
 
 
 /* ================= 华为云命令相关 ================= */

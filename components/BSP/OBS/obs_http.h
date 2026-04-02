@@ -33,6 +33,9 @@ extern "C" {
     #define GET_PRODUCTS_URL        "http://111.59.118.25:18083/software/getallproducts"
     #define GET_PLATFORMS_URL       "http://111.59.118.25:18083/software/GetProductPlatforms"
     #define GET_VERSIONS_URL        "http://111.59.118.25:18083/software/GetPlatformAllVersions"
+
+// --- 本地存储路径 ---
+#define STORAGE_MOUNT_POINT     "/disk"
 #else
     #define LOGIC_URL                 "http://192.168.1.111:8089/my/login"
     #define LOGIC_NAME                "lixiaoxiang"
@@ -47,10 +50,8 @@ extern "C" {
     #define GET_PLATFORMS_URL         "http://192.168.1.111:8089/software/GetProductPlatforms"
     #define GET_VERSIONS_URL          "http://192.168.1.111:8089/software/GetPlatformAllVersions"
 #endif
-// 定义 HTTP 响应体的最大缓冲区大小。
-// 请根据您的应用需求调整此值，以避免内存溢出或数据截断。
-#define MAX_HTTP_OUTPUT_BUFFER 2048 
-
+bool http_execute_get_with_body(const char *url, const char *token, const char *json_body);
+bool http_execute_get_request(const char *url, const char *token);
 /**
  * @brief 通用 HTTP 响应结构体
  */

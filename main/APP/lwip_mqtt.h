@@ -97,7 +97,7 @@ typedef struct {
 } file_task_msg_t;
 extern QueueHandle_t file_task_queue;
 extern char g_strReadLocalFileName[64];
-extern char g_strWriteLocalFileName[64];//SPIFFS 写文件名
+extern char g_strWriteLocalFileName[128];//SPIFFS 写文件名
 extern esp_mqtt_client_handle_t client;
 
 

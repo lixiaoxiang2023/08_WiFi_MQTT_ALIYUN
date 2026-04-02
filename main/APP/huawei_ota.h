@@ -6,7 +6,10 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-#define FW_VERSION "V1.0.0"
+
+#define FW_VERSION "V1.0.1"
+#define UPDATE_BIN_PATH "/disk/ESP32_UPDATA.BIN" // U盘挂载路径下的文件名
+
 void huawei_ota_set_token(const char *token);
 esp_err_t huawei_ota_start(const char *url);
 //void huawei_ota_report_version(void);
@@ -14,6 +17,7 @@ void huawei_ota_report_success(void);
 void ota_read_success_flag(void);
 void ota_clear_success_flag(void);
 void ota_check_and_confirm(void);
+esp_err_t ota_from_usb(const char *bin_path);
 extern bool ota_upgrade_flag_from_nvs;
 #ifdef __cplusplus
 }

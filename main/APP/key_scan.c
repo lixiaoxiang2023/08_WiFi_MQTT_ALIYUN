@@ -6,8 +6,12 @@
 #include <stdio.h>
 #include "lwip_mqtt.h"
 #include "wifi_config.h"
+#include "huawei_ota.h"
+#include "web_server_handlers.h"
 
 
+
+// 队列句柄
 esp_mqtt_client_handle_t client = NULL;
 
 typedef enum {
@@ -90,9 +94,8 @@ static void ota_update_task(void *arg)
         if (http_get_version(resp.token)) {
             char buf[256] = {0};
             // 拼接 U 盘完整路径 (例如: /usb/ota_data_initial.bin)
-            snprintf(buf, sizeof(buf), "%s/%s", USB_PATH, g_download_info.version);
+            snprintf(buf, sizeof(buf), "%s/%s", USB_PATH, g_download_info.file_name);
             strcpy(g_strWriteLocalFileName, buf);
-            ESP_LOGI("MAIN", "g_download_info.file_name :%s",g_download_info.version);
 
             // ⭐ 2. 开始下载到 U 盘
             if (download_to_usb(g_download_info.url, g_strWriteLocalFileName) == ESP_OK) {
@@ -125,8 +128,136 @@ static void ota_update_task(void *arg)
     xOtaTaskHandle = NULL; // Clear the task handle as the task is about to delete itself
     vTaskDelete(NULL); // Delete this task
 }
+esp_err_t run_full_upgrade_chain(const char *token) {
+    int64_t product_id = -1;
+    int64_t platform_id = -1;
+    char target_version_str[64] = {0}; 
+    char final_download_url[512] = {0};
+    char file_name[128] = {0};
+    char md5_expect[64] = {0};
 
+    // --- STEP 1: 获取产品 ID (逻辑不变) ---
+    if (!http_execute_get_request(GET_PRODUCTS_URL, token)) return ESP_FAIL;
+    cJSON *root = cJSON_Parse((char*)g_http_resp.buffer);
+    if (!root) return ESP_FAIL;
+    cJSON *data = cJSON_GetObjectItem(root, "data");
+    cJSON *item = NULL;
+    cJSON_ArrayForEach(item, data) {
+        cJSON *code = cJSON_GetObjectItem(item, "code");
+        if (code && strcmp(code->valuestring, PRODUCT_CODE) == 0) {
+            product_id = (int64_t)cJSON_GetObjectItem(item, "id")->valuedouble;
+            break;
+        }
+    }
+    cJSON_Delete(root);
+    if (product_id == -1) { ESP_LOGE("MAIN", "未找到产品: %s", PRODUCT_CODE); return ESP_FAIL; }
 
+    // --- STEP 2: 获取平台 ID (逻辑不变) ---
+    char body_buf[256];
+    snprintf(body_buf, sizeof(body_buf), "{\"id\":%lld}", product_id);
+    if (!http_execute_get_with_body(GET_PLATFORMS_URL, token, body_buf)) return ESP_FAIL;
+    root = cJSON_Parse((char*)g_http_resp.buffer);
+    data = cJSON_GetObjectItem(root, "data");
+    cJSON_ArrayForEach(item, data) {
+        cJSON *code = cJSON_GetObjectItem(item, "code");
+        if (code && strcmp(code->valuestring, PLAT_FORM_CODE) == 0) {
+            platform_id = (int64_t)cJSON_GetObjectItem(item, "id")->valuedouble;
+            break;
+        }
+    }
+    cJSON_Delete(root);
+    if (platform_id == -1) { ESP_LOGE("MAIN", "未找到平台: %s", PLAT_FORM_CODE); return ESP_FAIL; }
+
+    // --- STEP 3: 寻找最新版本 (修改点：取 size - 1) ---
+    snprintf(body_buf, sizeof(body_buf), "{\"id\":%lld}", platform_id);
+    if (!http_execute_get_with_body(GET_VERSIONS_URL, token, body_buf)) return ESP_FAIL;
+    root = cJSON_Parse((char*)g_http_resp.buffer);
+    data = cJSON_GetObjectItem(root, "data");
+    int size = cJSON_GetArraySize(data);
+    
+    if (size > 0) {
+        // ⭐ 修改点：取 size - 1 即为最新版本
+        cJSON *latest = cJSON_GetArrayItem(data, size - 1);
+        cJSON *v = cJSON_GetObjectItem(latest, "version");
+        if (v) {
+            strncpy(target_version_str, v->valuestring, sizeof(target_version_str)-1);
+            ESP_LOGW("MAIN", "定位到最新版本号: %s", target_version_str);
+        }
+    }
+    cJSON_Delete(root);
+    if (strlen(target_version_str) == 0) { ESP_LOGE("MAIN", "版本列表为空或解析失败"); return ESP_FAIL; }
+
+    // --- STEP 4: 请求 DOWNLOAD_URL 获取该版本的下载指令 (解析逻辑已修正) ---
+    cJSON *req_root = cJSON_CreateObject();
+    cJSON_AddStringToObject(req_root, "platformcode", PLAT_FORM_CODE);
+    cJSON_AddStringToObject(req_root, "productcode", PRODUCT_CODE);
+    cJSON_AddStringToObject(req_root, "version", target_version_str);
+    char *json_body = cJSON_PrintUnformatted(req_root);
+    
+    ESP_LOGI("MAIN", "请求下载地址 Body: %s", json_body);
+    bool ret = http_execute_get_with_body(DOWNLOAD_CURRENT_URL, token, json_body);
+    free(json_body);
+    cJSON_Delete(req_root);
+
+    if (!ret) return ESP_FAIL;
+
+    // 解析最后的下载地址信息 (修正了 files 数组层级)
+    root = cJSON_Parse((char*)g_http_resp.buffer);
+    if (!root) return ESP_FAIL;
+    cJSON *data_obj = cJSON_GetObjectItem(root, "data");
+    if (data_obj) {
+        cJSON *files = cJSON_GetObjectItem(data_obj, "files");
+        if (cJSON_IsArray(files) && cJSON_GetArraySize(files) > 0) {
+            cJSON *f = cJSON_GetArrayItem(files, 0); 
+            cJSON *u = cJSON_GetObjectItem(f, "url");
+            cJSON *n = cJSON_GetObjectItem(f, "name"); 
+            cJSON *m = cJSON_GetObjectItem(f, "md5");
+
+            if (u) strncpy(final_download_url, u->valuestring, sizeof(final_download_url)-1);
+            if (n) strncpy(file_name, n->valuestring, sizeof(file_name)-1);
+            if (m) strncpy(md5_expect, m->valuestring, sizeof(md5_expect)-1);
+        }
+    }
+    cJSON_Delete(root);
+
+    // --- STEP 5: 下载与 OTA ---
+    if (strlen(final_download_url) > 0) {
+        char full_path[256];
+        if (strlen(file_name) == 0) snprintf(file_name, sizeof(file_name), "%s_latest.bin", target_version_str);
+        snprintf(full_path, sizeof(full_path), "/disk/%s", file_name);
+        
+        if (download_to_usb(final_download_url, full_path) == ESP_OK) {
+            if (verify_file_md5(full_path, md5_expect)) {
+                ESP_LOGW("MAIN", "校验通过，开始升级到最新版本...");
+                ota_from_usb(full_path);
+                return ESP_OK;
+            } else {
+                unlink(full_path);
+                ESP_LOGE("MAIN", "MD5 校验失败");
+            }
+        }
+    } else {
+        ESP_LOGE("MAIN", "未能获取有效下载地址");
+    }
+
+    return ESP_FAIL;
+}
+
+void ota_daemon_task(void *pvParameter) {
+    ota_msg_t msg;
+    ESP_LOGI("OTA_DAEMON", "OTA 守护任务就绪...");
+
+    while (1) {
+        if (xQueueReceive(ota_queue, &msg, portMAX_DELAY) == pdPASS) 
+        {
+            if (run_full_upgrade_chain(g_strResp.token) == ESP_OK) {
+                ESP_LOGI("MAIN", "一键全自动升级完成！设备即将重启...");
+            } else {
+                ESP_LOGE("MAIN", "自动升级流程在某一步骤中断。");
+            }
+        }
+    }
+}
 void key_scan_task(void *arg)
 {
     uint8_t key;
@@ -194,7 +325,6 @@ void key_scan_task(void *arg)
             case KEY2_PRES:
             {
                 printf("KEY2 has been pressed \n");
-                //LED(0);
                 break;
             }
             case KEY3_PRES:

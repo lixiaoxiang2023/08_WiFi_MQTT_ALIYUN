@@ -456,8 +456,6 @@ void wifi_background_task(void *pv)
     // 4. 获取网络时间 (SNTP)
     // 很多云端登录需要校验时间戳，建议在登录前同步时间
     initialize_sntp_v5();
-    // 简单等待同步（根据你的 snttp 实现，可能需要几秒钟）
-    vTaskDelay(pdMS_TO_TICKS(2000));
 
     // 5. 登录并获取服务器文件列表
     int retry_count = 3;

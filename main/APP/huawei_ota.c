@@ -394,3 +394,96 @@ void ota_check_and_confirm(void)
     }
 }
 
+/**
+ * @brief 从指定路径读取固件并写入 OTA 分区
+ * @param bin_path 固件在 U 盘中的完整路径 (如 "/disk/update.bin")
+ */
+esp_err_t ota_from_usb(const char *bin_path) {
+    if (bin_path == NULL) {
+        ESP_LOGE(TAG, "无效的文件路径");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ESP_LOGI(TAG, "开始从 U 盘读取固件: %s", bin_path);
+    
+    FILE *f = fopen(bin_path, "rb");
+    if (f == NULL) {
+        ESP_LOGE(TAG, "无法打开文件: %s，请检查 U 盘挂载状态", bin_path);
+        return ESP_FAIL;
+    }
+
+    esp_err_t err;
+    esp_ota_handle_t update_handle = 0;
+    const esp_partition_t *update_partition = esp_ota_get_next_update_partition(NULL);
+
+    if (update_partition == NULL) {
+        ESP_LOGE(TAG, "未找到可用的 OTA 更新分区");
+        fclose(f);
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    ESP_LOGI(TAG, "正在写入分区: %s (地址: 0x%08X)", update_partition->label, (unsigned int)update_partition->address);
+
+    // 开始 OTA 过程 (OTA_SIZE_UNKNOWN 表示自动处理大小)
+    err = esp_ota_begin(update_partition, OTA_SIZE_UNKNOWN, &update_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_ota_begin 失败! (0x%X)", err);
+        fclose(f);
+        return err;
+    }
+
+    // 分配缓冲区
+    const size_t buf_size = 4096;
+    char *buffer = malloc(buf_size);
+    if (buffer == NULL) {
+        ESP_LOGE(TAG, "无法分配 OTA 缓冲区内存");
+        fclose(f);
+        return ESP_ERR_NO_MEM;
+    }
+
+    size_t read_len;
+    size_t total_write = 0;
+    
+    // 循环读取并写入分区
+    while ((read_len = fread(buffer, 1, buf_size, f)) > 0) {
+        err = esp_ota_write(update_handle, buffer, read_len);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "esp_ota_write 失败! (0x%X)", err);
+            goto ota_cleanup;
+        }
+        total_write += read_len;
+        // 每写入约 100KB 打印一次进度（可选）
+        if ((total_write / buf_size) % 25 == 0) {
+            ESP_LOGD(TAG, "已写入: %d bytes", total_write);
+        }
+    }
+
+    ESP_LOGI(TAG, "读取完成，总计写入: %d bytes", total_write);
+
+    // 结束写入并校验
+    err = esp_ota_end(update_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_ota_end 校验失败 (固件可能损坏或不匹配)!");
+        goto ota_cleanup;
+    }
+
+    // 设置下一次启动的分区
+    err = esp_ota_set_boot_partition(update_partition);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "设置启动分区失败!");
+        goto ota_cleanup;
+    }
+
+    ESP_LOGW(TAG, "✅ U 盘升级写入成功，设备即将在 2 秒后重启...");
+    free(buffer);
+    fclose(f);
+    
+    vTaskDelay(pdMS_TO_TICKS(2000));
+    esp_restart();
+    return ESP_OK;
+
+ota_cleanup:
+    if (buffer) free(buffer);
+    if (f) fclose(f);
+    return err;
+}
