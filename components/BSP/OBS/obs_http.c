@@ -1118,7 +1118,7 @@ bool http_get_version(const char *token)
         return false;
     }
 
-    const char *target_url = DOWNLOAD_URL;
+    const char *target_url = DOWNLOAD_CURRENT_URL;
 
     // 2. 调用通用 HTTP 请求接口
     if (http_send_request(target_url, HTTP_METHOD_POST, token, "application/json", post_data, &response)) {

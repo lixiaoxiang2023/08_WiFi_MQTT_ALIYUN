@@ -216,7 +216,7 @@ static const char *wifi_config_html =
 "if(!pId || pId.includes('加载') || pId.includes('无')){ alert('请先选择有效的平台'); return; }"
 "if(!confirm('是否获取最新固件对本机进行一键升级？')) return;"
 "try {"
-"const res = await fetch('/save_instrument_config', {"
+"const res = await fetch('/do_update', {"
 "method: 'POST',"
 "headers: {'Content-Type': 'application/json'},"
 "body: JSON.stringify({"

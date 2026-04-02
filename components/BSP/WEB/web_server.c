@@ -113,7 +113,7 @@ void web_server_start(void)
         };
 
         httpd_uri_t update_uri = {
-            .uri       = "/save_instrument_config",
+            .uri       = "/do_update",
             .method    = HTTP_POST,
             .handler   = update_handler,
             .user_ctx  = NULL

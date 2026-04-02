@@ -477,6 +477,9 @@ esp_err_t ota_from_usb(const char *bin_path) {
     ESP_LOGW(TAG, "✅ U 盘升级写入成功，设备即将在 2 秒后重启...");
     free(buffer);
     fclose(f);
+
+    // ⭐ 核心修改：升级成功后删除文件
+    unlink(bin_path); 
     
     vTaskDelay(pdMS_TO_TICKS(2000));
     esp_restart();
