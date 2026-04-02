@@ -1090,11 +1090,11 @@ bool http_get_version(const char *token)
         ESP_LOGE(OBS_TAG, "Failed to load instrument config from NVS. Using default values.");
         // 设置一些默认值，如果NVS加载失败
         strcpy(current_config.product_code, "default_product");
-        strcpy(current_config.platform_code, "default_platform");
+        strcpy(current_config.platform_name, "default_platform");
         strcpy(current_config.firmware_version, "v0.0.0");
     } else {
         ESP_LOGI(OBS_TAG, "Loaded instrument config from NVS: Product='%s', Platform='%s', Version='%s'",
-                 current_config.product_code, current_config.platform_code, current_config.firmware_version);
+                 current_config.product_code, current_config.platform_name, current_config.firmware_version);
     }
 
     // 1. 构建 POST Body (业务逻辑部分) - 现在使用从 NVS 读取的值
@@ -1106,7 +1106,7 @@ bool http_get_version(const char *token)
     // 使用从 NVS 加载的值来构建 JSON
     
     //cJSON_AddStringToObject(root, "productcode", PRODUCT_CODE);
-    cJSON_AddStringToObject(root, "platformcode", PLAT_FORM_CODE);
+    cJSON_AddStringToObject(root, "platformcode", current_config.platform_name);
     cJSON_AddStringToObject(root, "productcode", current_config.product_code);
    // cJSON_AddStringToObject(root, "platformcode", current_config.platform_code);
     cJSON_AddStringToObject(root, "version", current_config.firmware_version); // 使用 firmware_version 作为 "version" 字段

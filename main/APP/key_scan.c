@@ -19,48 +19,58 @@ static wifi_user_mode_t g_wifi_user_mode = WIFI_MODE_STA_ONLY;
 
 void wifi_switch_mode(void)
 {
-    ESP_LOGI("WIFI", "Switching WiFi mode...");
+    ESP_LOGI("WIFI", "Switching WiFi mode from %d...", g_wifi_user_mode);
 
-    // 1️⃣ 先停止 MQTT
+    // 1️⃣ 安全停止并销毁 MQTT
     if (client) {
+        ESP_LOGI("WIFI", "Stopping MQTT client...");
         esp_mqtt_client_stop(client);
+        // 给一点时间让 MQTT 线程退出循环
+        vTaskDelay(pdMS_TO_TICKS(100)); 
         esp_mqtt_client_destroy(client);
         client = NULL;
     }
 
-    // 2️⃣ 停止 WiFi
-    esp_wifi_stop();
+    // 2️⃣ 停止 WiFi 驱动
+    // 注意：stop 会清空当前的连接状态
+    esp_err_t err = esp_wifi_stop();
+    if (err != ESP_OK) {
+        ESP_LOGE("WIFI", "Failed to stop wifi: %s", esp_err_to_name(err));
+    }
 
+    // 3️⃣ 根据逻辑切换模式
     if (g_wifi_user_mode == WIFI_MODE_WEB_CONFIG)
     {
-        // 切到 STA_ONLY
-        ESP_LOGI("WIFI", "Switch to STA ONLY");
-        lcd_show_string(30, 110, 200, 16, 16, "STA      ", RED);
-        lcd_show_string(30, 130, 200, 16, 16, "                          ", RED);
+        // 目标：纯客户端模式 (STA)
+        ESP_LOGI("WIFI", "Switching to [STA ONLY] Mode");
+        //lcd_clear_line(110); // 建议封装个清行函数
+        lcd_show_string(30, 110, 200, 16, 16, "Mode: STA", RED);
 
-        esp_wifi_set_mode(WIFI_MODE_STA);
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
         g_wifi_user_mode = WIFI_MODE_STA_ONLY;
     }
     else
     {
-        // 切到 APSTA
-        ESP_LOGI("WIFI", "Switch to APSTA");
-        lcd_show_string(30, 110, 200, 16, 16, "AP+STA", RED);
-        lcd_show_string(30, 130, 200, 16, 16, "Web service:192.168.4.1", RED);
+        // 目标：配网模式 (AP + STA)
+        ESP_LOGI("WIFI", "Switching to [AP + STA] Mode");
+        lcd_show_string(30, 110, 200, 16, 16, "Mode: AP+STA", RED);
+        lcd_show_string(30, 130, 200, 16, 16, "IP: 192.168.4.1", RED);
 
-        esp_wifi_set_mode(WIFI_MODE_APSTA);
-        web_prov_start();
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
+        
+        // 启动 Web 服务前，建议在内部先 stop 掉旧的防止重叠
+        web_prov_start(); 
         g_wifi_user_mode = WIFI_MODE_WEB_CONFIG;
     }
 
-    // 3️⃣ 重启 WiFi
-    esp_wifi_start();
+    // 4️⃣ 重新启动 WiFi
+    ESP_ERROR_CHECK(esp_wifi_start());
 
-    // 4️⃣ 如果是 STA_ONLY，则重启 MQTT
-    if (g_wifi_user_mode == WIFI_MODE_STA_ONLY)
+    // 5️⃣ 核心连接逻辑
+    //if (g_wifi_user_mode == WIFI_MODE_STA_ONLY)
     {
-        esp_wifi_connect();   // ⭐ 必须加
-       // mqtt_init();  // 或单独写个 mqtt_start()
+    //    ESP_LOGI("WIFI", "Connecting to AP...");
+        esp_wifi_connect(); 
     }
 }
 
@@ -80,8 +90,9 @@ static void ota_update_task(void *arg)
         if (http_get_version(resp.token)) {
             char buf[256] = {0};
             // 拼接 U 盘完整路径 (例如: /usb/ota_data_initial.bin)
-            snprintf(buf, sizeof(buf), "%s/%s", USB_PATH, g_download_info.file_name);
+            snprintf(buf, sizeof(buf), "%s/%s", USB_PATH, g_download_info.version);
             strcpy(g_strWriteLocalFileName, buf);
+            ESP_LOGI("MAIN", "g_download_info.file_name :%s",g_download_info.version);
 
             // ⭐ 2. 开始下载到 U 盘
             if (download_to_usb(g_download_info.url, g_strWriteLocalFileName) == ESP_OK) {

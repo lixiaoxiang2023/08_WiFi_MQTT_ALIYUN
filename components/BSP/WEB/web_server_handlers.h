@@ -6,23 +6,27 @@
 #include "cJSON.h"
 #include <dirent.h>     // 添加这些，因为文件操作转移到这里
 #include <sys/stat.h>   // 添加这些
+#include "json_processor.h"  // 添加这些
+#include "obs_http.h" // 
+
 // #include "esp_wifi_types.h" // 移除这一行
 // NVS 存储的键定义
 #define NVS_NAMESPACE "config"
-#define NVS_KEY_PLATFORM_CODE "plat_code"
+#define NVS_KEY_PLATFORM_CODE "plat_id"
 #define NVS_KEY_PRODUCT_CODE "prod_code"
 #define NVS_KEY_FIRMWARE_VERSION "fw_version"
 #define NVS_KEY_LOCAL_FILE "local_file"
 #define NVS_KEY_UPLOAD_SERVER "upload_srv"
 #define NVS_KEY_WIFI_SSID "wifi_ssid"
 #define NVS_KEY_WIFI_PASSWORD "wifi_pwd"
-
+#define NVS_KEY_PLATFORM_NAME    "plat_name" // 存储 Name (如 "ESP32-S3")
 /**
  * @brief 结构体，用于在 C 代码中统一管理仪器配置。
  */
 typedef struct {
-    char platform_code[32];
     char product_code[32];
+    char platform_name[64];  // 存放 "ESP32-S3-Dev"
+    char platform_id[16];    // 存放 "13"
     char firmware_version[32];
 } instrument_config_t;
 
@@ -40,6 +44,7 @@ typedef struct {
  * @return ESP_OK 成功，否则失败。
  */
 esp_err_t init_web_config_nvs(void);
+extern login_response_t g_strResp;
 
 /**
  * @brief 将仪器配置保存到 NVS。
@@ -82,5 +87,6 @@ esp_err_t get_config_handler(httpd_req_t *req); // 用于获取数据上传配�
 esp_err_t get_wifi_info_handler(httpd_req_t *req);
 esp_err_t save_config_handler(httpd_req_t *req); // 用于保存数据上传配置
 esp_err_t get_product_list_handler(httpd_req_t *req);
-
+esp_err_t get_versions_handler(httpd_req_t *req);
+esp_err_t get_platforms_handler(httpd_req_t *req);
 #endif // WEB_SERVER_HANDLERS_H

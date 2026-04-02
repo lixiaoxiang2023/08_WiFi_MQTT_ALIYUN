@@ -37,6 +37,7 @@ typedef struct {
 
 extern EventGroupHandle_t s_wifi_event_group;
 extern data_config_t g_data_config;
+
 /* 获取内部 EventGroup（高级用法） */
 EventGroupHandle_t wifi_config_get_event_group(void);
 /* 声明函数 */

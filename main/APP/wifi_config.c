@@ -14,6 +14,7 @@
 #include "web_server.h"
 #include "esp_netif_sntp.h"
 #include "esp_mac.h"
+#include "web_server_handlers.h"
 
 #define WIFI_CONNECT_TIMEOUT_MS 8000   // 8秒超时
 #define WIFI_CONNECT_RETRY_MAX 3        // STA 最大重试次数
@@ -459,16 +460,15 @@ void wifi_background_task(void *pv)
     vTaskDelay(pdMS_TO_TICKS(2000));
 
     // 5. 登录并获取服务器文件列表
-    login_response_t resp = {0};
     int retry_count = 3;
     bool sync_success = false;
 
     while (retry_count-- > 0 && !sync_success) {
         ESP_LOGI("WIFI", "Connecting to cloud... (Attempts left: %d)", retry_count + 1);
 
-        if (http_login(&resp)) {
+        if (http_login(&g_strResp)) {
             // 登录成功，抓取产品列表存入 g_http_resp.buffer
-            if (http_get_all_products(resp.token)) {
+            if (http_get_all_products(g_strResp.token)) {
                 ESP_LOGI("WIFI", "Product list synced and cached.");
                 sync_success = true;
             } else {
