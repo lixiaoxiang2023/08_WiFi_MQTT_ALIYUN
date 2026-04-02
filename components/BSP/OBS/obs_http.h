@@ -20,19 +20,33 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+#if 1
+    #define LOGIC_URL               "http://111.59.118.25:18083/my/login"
+    #define LOGIC_NAME              "lixiaoxiang"
+    #define LOGIC_PASSWORD          "Lixiaoxiang001"
 
-#define LOGIC_URL      "http://111.59.118.25:18083/my/login"
-#define LOGIC_NAME     "lixiaoxiang"
-#define LOGIC_PASSWORD "Lixiaoxiang001"
+    #define DOWNLOAD_URL            "http://111.59.118.25:18083/software/getavailableversion"
+    #define DOWNLOAD_CURRENT_URL    "http://111.59.118.25:18083/software/getcurrentversion"
+    #define PRODUCT_CODE            "test_code"
+    #define PLAT_FORM_CODE          "mcu"
+    #define VERSION                 "v1.0.0"
+    #define GET_PRODUCTS_URL        "http://111.59.118.25:18083/software/getallproducts"
+    #define GET_PLATFORMS_URL       "http://111.59.118.25:18083/software/GetProductPlatforms"
+    #define GET_VERSIONS_URL        "http://111.59.118.25:18083/software/GetPlatformAllVersions"
+#else
+    #define LOGIC_URL                 "http://192.168.1.111:8089/my/login"
+    #define LOGIC_NAME                "lixiaoxiang"
+    #define LOGIC_PASSWORD            "Lixiaoxiang001"
 
-#define DOWNLOAD_URL        "http://111.59.118.25:18083/software/getavailableversion"
-#define PRODUCT_CODE        "test_code"
-#define PLAT_FORM_CODE      "mcu"
-#define VERSION             "v1.0.0"
-#define GET_PRODUCTS_URL    "http://111.59.118.25:18083/software/getallproducts"
-#define GET_PLATFORMS_URL   "http://111.59.118.25:18083/software/GetProductPlatforms"
-#define GET_VERSIONS_URL    "http://111.59.118.25:18083/software/GetPlatformAllVersions"
-
+    #define DOWNLOAD_URL              "http://192.168.1.111:8089/software/getavailableversion"
+    #define DOWNLOAD_CURRENT_URL      "http://192.168.1.111:8089/software/getcurrentversion"
+    #define PRODUCT_CODE              "test_code"
+    #define PLAT_FORM_CODE            "mcu"
+    #define VERSION                   "v1.0.0"
+    #define GET_PRODUCTS_URL          "http://192.168.1.111:8089/software/getallproducts"
+    #define GET_PLATFORMS_URL         "http://192.168.1.111:8089/software/GetProductPlatforms"
+    #define GET_VERSIONS_URL          "http://192.168.1.111:8089/software/GetPlatformAllVersions"
+#endif
 // 定义 HTTP 响应体的最大缓冲区大小。
 // 请根据您的应用需求调整此值，以避免内存溢出或数据截断。
 #define MAX_HTTP_OUTPUT_BUFFER 2048 
@@ -122,8 +136,9 @@ esp_err_t obs_http_upload(const char *url, const char *local_path);
  */
 esp_err_t obs_http_list_bucket(const char *url, const char *save_path);
 bool http_get_all_products(const char *token);
-bool http_get_product_platforms(const char *token);
-bool http_get_platform_versions(const char *token);
+bool http_get_product_platforms(const char *token, int64_t product_id);
+bool http_get_platform_versions(const char *token, int64_t product_id);
+
 #ifdef __cplusplus
 }
 #endif

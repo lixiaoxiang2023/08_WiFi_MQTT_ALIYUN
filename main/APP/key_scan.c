@@ -146,14 +146,14 @@ void key_scan_task(void *arg)
                 }
 
                 // 3. 获取平台列表 (Platforms)
-                if (http_get_product_platforms(token)) {
+                if (http_get_product_platforms(token,4)) {
                     ESP_LOGI("MAIN", "步骤3成功: 已获取平台列表");
                 } else {
                     ESP_LOGE("MAIN", "步骤3失败: 平台列表拉取异常");
                 }
 
                 // 4. 获取版本列表 (Versions)
-                if (http_get_platform_versions(token)) {
+                if (http_get_platform_versions(token,5)) {
                     ESP_LOGI("MAIN", "步骤4成功: 已获取版本列表");
                 } else {
                     ESP_LOGE("MAIN", "步骤4失败: 版本列表拉取异常");
