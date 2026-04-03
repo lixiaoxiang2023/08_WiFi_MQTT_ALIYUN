@@ -9,9 +9,25 @@ static const char *TAG = "WEB_WIFI";
 /* ---------- GET / ---------- */
 esp_err_t web_wifi_page_handler(httpd_req_t *req)
 {
+    size_t template_len = strlen(wifi_config_html);
+    size_t buf_size = template_len+128; // 预留足够空间
+    char *buf = malloc(buf_size);
+    
+    if (buf == NULL) return ESP_FAIL;
+
+    // 执行转换
+    int result = snprintf(buf, buf_size, wifi_config_html, FW_VERSION, HW_VERSION);
+
+    // ⭐ 打印关键调试信息
+    ESP_LOGI("DEBUG", "模板长度: %d, 生成长度: %d, 缓冲区大小: %d", template_len, result, buf_size);
+    
+    // 如果 result 小于 template_len，说明 snprintf 在中途就停止了
+    // 如果 result 很大但页面只显示一部分，说明中间有隐形 \0
+
     httpd_resp_set_type(req, "text/html");
-    httpd_resp_send(req, wifi_config_html, HTTPD_RESP_USE_STRLEN);
-    return ESP_OK;
+    esp_err_t ret = httpd_resp_send(req, buf, HTTPD_RESP_USE_STRLEN);
+    free(buf);
+    return ret;
 }
 
 /* ---------- POST /wifi ---------- */

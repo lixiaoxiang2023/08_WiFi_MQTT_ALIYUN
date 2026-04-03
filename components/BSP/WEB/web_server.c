@@ -41,63 +41,63 @@ void web_server_start(void)
     }
 
     // 注册所有 Web 相关的 URI 处理器 (从 wifi_config.c 移动过来，以及新的仪器配置处理器)
-        httpd_uri_t wifi_scan_uri = {
+        static const httpd_uri_t wifi_scan_uri = {
         .uri      = "/scan",
         .method   = HTTP_GET,
         .handler  = wifi_scan_handler,
         .user_ctx = NULL
     };
-        httpd_uri_t save_config_uri = {
+        static const httpd_uri_t save_config_uri = {
             .uri      = "/save_config",
             .method   = HTTP_POST,
             .handler  = save_config_handler,
             .user_ctx = NULL
         };
-        httpd_uri_t connect_wifi_uri = {
+        static const httpd_uri_t connect_wifi_uri = {
             .uri      = "/connect_wifi",
             .method   = HTTP_POST,
             .handler  = connect_wifi_handler,
             .user_ctx = NULL
         };
-        httpd_uri_t usb_files_uri = {
+        static const httpd_uri_t usb_files_uri = {
             .uri      = "/usb_files",
             .method   = HTTP_GET,
             .handler  = usb_files_handler,
             .user_ctx = NULL
         };
-        httpd_uri_t get_config_uri = {
+        static const httpd_uri_t get_config_uri = {
             .uri = "/get_config",
             .method = HTTP_GET,
             .handler = get_config_handler,
             .user_ctx = NULL
         };
-        httpd_uri_t wifi_info_uri = {
+        static const httpd_uri_t wifi_info_uri = {
             .uri      = "/get_wifi_info",
             .method   = HTTP_GET,
             .handler  = get_wifi_info_handler,
             .user_ctx = NULL
         };
     // 新的仪器配置处理器
-        httpd_uri_t get_instrument_config_uri = {
+        static const httpd_uri_t get_instrument_config_uri = {
             .uri       = "/get_instrument_config",
             .method    = HTTP_GET,
             .handler   = get_instrument_config_handler,
             .user_ctx  = NULL
         };
-        httpd_uri_t save_instrument_config_uri = {
+        static const httpd_uri_t save_instrument_config_uri = {
         .uri       = "/save_instrument_config",
         .method    = HTTP_POST,
         .handler   = save_instrument_config_handler,
         .user_ctx  = NULL
         };
-        httpd_uri_t get_products_uri = {
+        static const httpd_uri_t get_products_uri = {
         .uri       = "/api/get_product_list", // 注意末尾的星号
         .method    = HTTP_GET,
         .handler   = get_product_list_handler,
         .user_ctx  = NULL
         };
 
-        httpd_uri_t uri_get_platforms = {
+        static const httpd_uri_t uri_get_platforms = {
         .uri      = "/api/get_platforms",
         .method   = HTTP_GET,
         .handler  = get_platforms_handler,
@@ -105,14 +105,14 @@ void web_server_start(void)
         };
         httpd_register_uri_handler(server, &uri_get_platforms);
 
-        httpd_uri_t uri_get_versions = {
+        static const httpd_uri_t uri_get_versions = {
             .uri      = "/api/get_versions",
             .method   = HTTP_GET,
             .handler  = get_versions_handler,
             .user_ctx = NULL
         };
 
-        httpd_uri_t update_uri = {
+        static const httpd_uri_t update_uri = {
             .uri       = "/do_update",
             .method    = HTTP_POST,
             .handler   = update_handler,

@@ -1,5 +1,6 @@
 #pragma once
-
+#define FW_VERSION "V1.0.2" // 以后只需修改这里
+#define HW_VERSION "HW-A1"
 static const char *wifi_config_html =
 "<!DOCTYPE html>"
 "<html lang='zh-CN'>"
@@ -19,12 +20,12 @@ static const char *wifi_config_html =
 ".card{background:#fff;border-radius:8px;padding:16px;margin-bottom:16px;box-shadow:0 2px 6px rgba(0,0,0,0.08);}"
 ".card h3{margin:0 0 10px;font-size:16px;border-left:4px solid #2d8cf0;padding-left:8px;}"
 "label{display:block;margin-top:12px;font-size:14px;font-weight:500;}"
-"input,select{width:100%;padding:8px;margin-top:6px;border-radius:4px;border:1px solid #ccc;font-size:14px;}"
+"input,select{width:100%%;padding:8px;margin-top:6px;border-radius:4px;border:1px solid #ccc;font-size:14px;}"
 ".tip{font-size:12px;color:#888;margin-top:4px;line-height:1.5;}"
 ".btn{margin-top:14px;padding:8px 16px;border:none;border-radius:4px;font-size:14px;cursor:pointer;}"
 ".btn-primary{background:#2d8cf0;color:#fff;}"
 ".btn-success{background:#19be6b;color:#fff;}"
-".btn-outline{background:#fff;border:1px solid #2d8cf0;color:#2d8cf0;width:100%;margin-top:10px;}"
+".btn-outline{background:#fff;border:1px solid #2d8cf0;color:#2d8cf0;width:100%%;margin-top:10px;}"
 ".inline{display:flex;gap:12px;flex-wrap:wrap;align-items:end;}"
 ".inline>div{flex:1;min-width:220px;}"
 "</style>"
@@ -48,8 +49,8 @@ static const char *wifi_config_html =
 "</div>"
 "<div class='card'>"
 "<h3>设备信息</h3>"
-"<p>软件版本号：V1.0.0</p>"
-"<p>硬件版本号：HW-A1</p>"
+"<p>软件版本号：" FW_VERSION "</p>"
+"<p>硬件版本号：" HW_VERSION "</p>"
 "<button class='btn btn-outline' onclick='triggerQuickUpdate()'>软件更新</button>"
 "</div>"
 "</div>"

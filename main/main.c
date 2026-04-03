@@ -97,14 +97,6 @@ void app_main(void)
     tud_usb_flash();
     firmware_storage_check(NULL);
 
-    // 移除对 g_data_config 的直接操作，现在由 web_server_handlers.c 管理
-    /*
-    if (load_data_config(&g_data_config) == ESP_FAIL) {
-        strcpy(g_data_config.local_file,USB_FILE_NAME);
-        strcpy(g_data_config.upload_server,OBS_DOWN_FILE_NAME);
-    }
-    */
-
     /* ================= 本地任务 ================= */
     //xTaskCreate(mem_monitor_task, "mem_mon", 4096, NULL, 5, NULL);
     xTaskCreatePinnedToCore(

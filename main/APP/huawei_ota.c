@@ -474,17 +474,16 @@ esp_err_t ota_from_usb(const char *bin_path) {
         goto ota_cleanup;
     }
 
-    ESP_LOGW(TAG, "✅ U 盘升级写入成功，设备即将在 2 秒后重启...");
-    free(buffer);
-    fclose(f);
-
-    // ⭐ 核心修改：升级成功后删除文件
-    unlink(bin_path); 
+    ESP_LOGW(TAG, "✅ U 盘升级成功，清理文件并重启...");
     
+    // 统一在这里删除文件（成功或特定失败后）
+    unlink(bin_path); 
+
+    // 延时并重启
     vTaskDelay(pdMS_TO_TICKS(2000));
     esp_restart();
-    return ESP_OK;
 
+    // 所有的资源释放都走这里
 ota_cleanup:
     if (buffer) free(buffer);
     if (f) fclose(f);

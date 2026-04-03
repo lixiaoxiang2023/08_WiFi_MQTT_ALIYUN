@@ -5,7 +5,7 @@
 #include "string.h"
 #include "stdlib.h" // For malloc/free
 #include "esp_wifi.h" // 用于 wifi_scan_handler, connect_wifi_handler, get_wifi_info_handler
-
+#include "web_pages.h" // 用于 FW_VERSION 和 HW_VERSION
 // 引入 wifi_config.h 的相关函数，以便在 connect_wifi_handler 中调用 wifi_apply_config
 // 声明 extern 确保可调用
 extern esp_err_t wifi_apply_config(const char *ssid, const char *password);
@@ -658,6 +658,7 @@ esp_err_t get_platforms_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
 
+    
     ESP_LOGI("HTTP_SERVER", "正在代发请求：获取产品 ID %lld 的平台列表", product_id);
     // 检查 STA 是否分配到了 IP 地址
         esp_netif_ip_info_t ip_info;

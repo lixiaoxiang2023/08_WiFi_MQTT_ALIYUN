@@ -7,8 +7,7 @@
 extern "C" {
 #endif
 
-#define FW_VERSION "V1.0.1"
-#define UPDATE_BIN_PATH "/disk/ESP32_UPDATA.BIN" // U盘挂载路径下的文件名
+#define FW_VERSION "V1.0.2"
 
 void huawei_ota_set_token(const char *token);
 esp_err_t huawei_ota_start(const char *url);

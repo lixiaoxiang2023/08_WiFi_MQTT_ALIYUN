@@ -269,7 +269,6 @@ void key_scan_task(void *arg)
         {
             case KEY0_PRES:
             {
-                ESP_LOGI("MAIN", ">>>>>> 开始全量数据同步流程 <<<<<<");
                 login_response_t login_resp = {0};
 
                 // 1. 登录获取 Token
@@ -277,31 +276,14 @@ void key_scan_task(void *arg)
                     ESP_LOGE("MAIN", "步骤1失败: 登录鉴权未通过");
                     break; 
                 }
-                const char* token = login_resp.token;
 
                 // 2. 获取产品列表 (Products)
-                if (http_get_all_products(token)) {
+                if (http_get_all_products(login_resp.token)) {
                     ESP_LOGI("MAIN", "步骤2成功: 已获取产品列表");
                     // 这里建议立即处理 g_http_resp.buffer，比如解析出产品ID或存入其他变量
                 } else {
                     ESP_LOGE("MAIN", "步骤2失败: 产品列表拉取异常");
                 }
-
-                // 3. 获取平台列表 (Platforms)
-                if (http_get_product_platforms(token,4)) {
-                    ESP_LOGI("MAIN", "步骤3成功: 已获取平台列表");
-                } else {
-                    ESP_LOGE("MAIN", "步骤3失败: 平台列表拉取异常");
-                }
-
-                // 4. 获取版本列表 (Versions)
-                if (http_get_platform_versions(token,5)) {
-                    ESP_LOGI("MAIN", "步骤4成功: 已获取版本列表");
-                } else {
-                    ESP_LOGE("MAIN", "步骤4失败: 版本列表拉取异常");
-                }
-
-                ESP_LOGI("MAIN", ">>>>>> 同步流程结束，数据已更新至全局缓存 <<<<<<");
                 break;
             }
             case KEY1_PRES:
