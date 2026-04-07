@@ -80,6 +80,13 @@
 #define LGRAYBLUE       0XA651      /* 浅灰蓝色(中间层颜色) */ 
 #define LBBLUE          0X2B12      /* 浅棕蓝色(选择条目的反色) */ 
 
+#define BAR_X 40            // 进度条左上角 X
+#define BAR_Y 140           // 进度条左上角 Y
+#define BAR_WIDTH 240       // 进度条总宽度
+#define BAR_HEIGHT 16       // 进度条高度
+#define COLOR_BAR_BG 0xCE79  // 灰色背景 (RGB565)
+#define COLOR_BAR_FILL 0x07E0 // 绿色填充 (RGB565)
+
 /* 扫描方向定义 */
 #define L2R_U2D         0           /* 从左到右,从上到下 */
 #define L2R_D2U         1           /* 从左到右,从下到上 */

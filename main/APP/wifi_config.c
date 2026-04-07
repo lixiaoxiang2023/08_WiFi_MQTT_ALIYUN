@@ -15,6 +15,7 @@
 #include "esp_netif_sntp.h"
 #include "esp_mac.h"
 #include "web_server_handlers.h"
+#include"key_scan.h"
 
 #define WIFI_CONNECT_TIMEOUT_MS 8000   // 8秒超时
 #define WIFI_CONNECT_RETRY_MAX 3        // STA 最大重试次数
@@ -85,6 +86,11 @@ void web_prov_start(void)
     web_server_start();
 }
 
+void web_prov_stop(void)
+{
+    web_server_stop();
+}
+
 static void smartconfig_stop(void)
 {
     if (s_prov_mode != WIFI_PROV_SMARTCONFIG)
@@ -148,7 +154,6 @@ static void event_handler(void *arg,
         s_sta_connecting = false;
         s_retry_count = 0;
         xEventGroupSetBits(s_wifi_event_group, WIFI_CFG_CONNECTED_BIT);
-       // mqtt_init();  // 或单独写个 mqtt_start()
     }
     else if (event_base == SC_EVENT) {
 
@@ -268,15 +273,11 @@ esp_err_t wifi_smartconfig_sta(void)
             } else {
                 ESP_LOGI(TAG, "WiFi connected successfully");
             }
-            char ssid_str[64] = {0};
-            snprintf(ssid_str, sizeof(ssid_str), "SSID: %s", wifi_cfg.sta.ssid);
-            lcd_show_string(30, 70, 200, 16, 16, ssid_str, RED);
+
 
         } else {
 
             ESP_LOGW(TAG, "WiFi connect failed, start SmartConfig");
-
-            lcd_show_string(30, 70, 200, 16, 16, "SmartConfig Mode", RED);
 
            // s_prov_mode = WIFI_PROV_SMARTCONFIG;
            // xTaskCreate(smartconfig_task, "smartconfig_task", 4096, NULL, 5, NULL);
@@ -367,32 +368,6 @@ static void smartconfig_task(void *parm)
         }
     }
 }
-
-// 移除以下全局变量和函数，它们将移动到 web_server_handlers.c
-
-// #define MAX_SCAN_RESULTS 20
-// typedef struct {
-//     char ssid[33];  // SSID + '\0'
-//     int8_t rssi;
-// } scan_result_t;
-
-// static scan_result_t g_scan_results[MAX_SCAN_RESULTS];
-// static int g_scan_count = 0;
-// static bool scan_done = false;
-
-// static void wifi_scan_done_cb(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) { ... }
-// esp_err_t wifi_scan_handler(httpd_req_t *req) { ... }
-// esp_err_t connect_wifi_handler(httpd_req_t *req) { ... }
-
-// data_config_t g_data_config; // 移除，或者改为局部使用
-// esp_err_t load_data_config(data_config_t *config) { ... }
-// esp_err_t save_data_config(data_config_t *config) { ... }
-
-// esp_err_t save_config_handler(httpd_req_t *req) { ... }
-// esp_err_t usb_files_handler(httpd_req_t *req) { ... }
-// esp_err_t get_config_handler(httpd_req_t *req) { ... }
-// esp_err_t get_wifi_info_handler(httpd_req_t *req) { ... }
-
 
 void print_current_time(void) {
     time_t now;

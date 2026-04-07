@@ -267,106 +267,116 @@ static void obs_state_reset(void)
     memset(&g_state, 0, sizeof(g_state));
 }
 /* ===================== 下载 ===================== */
-//#define MOUNT_POINT "/usb"  // 或者你自定义的挂载点名称
+
+/**
+ * @brief 下载文件并保存到U盘，同时在LCD显示进度
+ * @param url      下载链接
+ * @param filename 本地路径 (如 "/usb/update.bin")
+ * @return esp_err_t 
+ */
 esp_err_t download_to_usb(const char *url, const char *filename) {
     if (url == NULL || filename == NULL) return ESP_ERR_INVALID_ARG;
 
-    // 1. 打开 U 盘文件
+    // --- 1. UI 风格统一初始化 ---
+    lcd_clear(LGRAY); // 统一背景色
+    
+    // 顶部标题栏 (与主页一致的深蓝底白字)
+    lcd_fill(0, 0, 320, 45, DARKBLUE);
+    lcd_show_string(15, 12, 290, 24, 24, "FIRMWARE UPGRADE", BLACK);
+
+    // 中央进度卡片 (白色底板)
+    lcd_fill(15, 60, 305, 175, WHITE); 
+    lcd_draw_rectangle(15, 60, 305, 175, GRAYBLUE);
+
+    // 提取纯文件名并显示在卡片内
+    const char *short_name = strrchr(filename, '/');
+    short_name = (short_name == NULL) ? filename : (short_name + 1);
+    
+    lcd_show_string(30, 75, 240, 16, 16, "Target File:", BLACK);
+    lcd_show_string(30, 95, 240, 16, 16, (char *)short_name, BLUE);
+
+    // 绘制进度条外框 (在卡片内部)
+    // 假设 BAR_X=30, BAR_Y=140, BAR_WIDTH=260, BAR_HEIGHT=15
+    lcd_draw_rectangle(BAR_X - 1, BAR_Y - 1, BAR_X + BAR_WIDTH + 1, BAR_Y + BAR_HEIGHT + 1, GRAYBLUE);
+
+    // 2. 资源准备 (文件与网络)
     FILE *f = fopen(filename, "wb");
     if (f == NULL) {
-        ESP_LOGE("DOWNLOAD", "无法打开写入文件: %s", filename);
+        lcd_show_string(30, 185, 260, 16, 16, "Error: USB Disk Error", RED);
         return ESP_FAIL;
     }
 
     esp_http_client_config_t config = {
         .url = url,
         .method = HTTP_METHOD_GET,
-        .timeout_ms = 30000,         // ⭐ 增加超时到30秒，防止大文件读取超时
-        .buffer_size = 4096,         // ⭐ 增大缓冲区
+        .timeout_ms = 40000,
+        .buffer_size = 8192,         // 增加缓冲区
         .buffer_size_tx = 1024,
-        .skip_cert_common_name_check = true, // 如果是HTTPS可以加上
+        .skip_cert_common_name_check = true,
     };
     
     esp_http_client_handle_t client = esp_http_client_init(&config);
-    if (client == NULL) {
-        fclose(f);
-        return ESP_FAIL;
-    }
+    if (client == NULL) { fclose(f); return ESP_FAIL; }
 
-    // 2. 开启连接
     esp_err_t err = esp_http_client_open(client, 0);
     if (err != ESP_OK) {
-        ESP_LOGE("DOWNLOAD", "连接失败: %s", esp_err_to_name(err));
+        lcd_show_string(30, 185, 260, 16, 16, "Error: Network Failed", RED);
         esp_http_client_cleanup(client);
         fclose(f);
         return err;
     }
 
-    // 获取文件总长度
     int64_t content_length = esp_http_client_fetch_headers(client);
-    if (content_length <= 0) {
-        ESP_LOGW("DOWNLOAD", "无法获取 Content-Length，将进行不确定长度下载");
-    }
-
-    // 3. 循环读取
+    
+    // 3. 数据接收与进度刷新
     int total_read_len = 0;
-    int read_len = 0;
-    char *buffer = malloc(4096); // ⭐ 提升到4KB，匹配buffer_size提高写入U盘效率
-    if (buffer == NULL) {
-        fclose(f);
-        esp_http_client_cleanup(client);
-        return ESP_ERR_NO_MEM;
-    }
+    int last_percentage = -1;
+    char *buffer = malloc(4096);
+    if (buffer == NULL) { /* 处理内存失败 */ }
 
-    ESP_LOGI("DOWNLOAD", "开始接收数据...");
     while (true) {
-        read_len = esp_http_client_read(client, buffer, 4096);
-        
+        int read_len = esp_http_client_read(client, buffer, 4096);
         if (read_len > 0) {
-            // 写入文件
-            size_t written = fwrite(buffer, 1, read_len, f);
-            if (written < read_len) {
-                ESP_LOGE("DOWNLOAD", "U盘写入失败(可能空间不足)");
-                err = ESP_FAIL;
-                break;
-            }
+            fwrite(buffer, 1, read_len, f);
             total_read_len += read_len;
-            vTaskDelay(pdMS_TO_TICKS(10));
-            // 每下载 64KB 打印一次进度，避免刷屏
-            if (total_read_len % (64 * 1024) == 0) {
-                ESP_LOGI("DOWNLOAD", "已下载: %d bytes", total_read_len);
-            }
-        } else if (read_len == 0) {
-            // ⭐ 正常读取完毕
-            if (esp_http_client_is_complete_data_received(client)) {
-                ESP_LOGI("DOWNLOAD", "数据接收完整");
-                err = ESP_OK;
-            } else {
-                ESP_LOGE("DOWNLOAD", "连接意外关闭，数据不完整");
-                err = ESP_FAIL;
-            }
-            break;
-        } else {
-                    // 获取更底层的错误码
-                    int sock_errno = esp_http_client_get_errno(client);
-                    ESP_LOGE("DOWNLOAD", "网络读取异常断开! read_len: %d, errno: %d (%s)", 
-                            read_len, sock_errno, strerror(sock_errno));
-                    err = ESP_FAIL;
-                    break;
+
+            // --- 进度逻辑刷新 ---
+            if (content_length > 0) {
+                int percentage = (int)((total_read_len * 100) / content_length);
+                if (percentage != last_percentage) {
+                    last_percentage = percentage;
+
+                    // 在白色卡片内更新百分比文字
+                    char p_str[32];
+                    snprintf(p_str, sizeof(p_str), "Downloading: %d%%", percentage);
+                    lcd_show_string(30, 120, 200, 16, 16, p_str, DARKBLUE);
+
+                    // 填充进度条 (使用绿色)
+                    int current_fill = (BAR_WIDTH * percentage) / 100;
+                    if (current_fill > 0) {
+                        lcd_fill(BAR_X, BAR_Y, BAR_X + current_fill, BAR_Y + BAR_HEIGHT, GREEN);
+                    }
                 }
+            }
+            vTaskDelay(pdMS_TO_TICKS(1)); 
+        } else {
+            err = (read_len == 0 && esp_http_client_is_complete_data_received(client)) ? ESP_OK : ESP_FAIL;
+            break;
+        }
     }
 
-    // 4. 清理
+    // 4. 结果展示 (依然保持在统一布局下)
+    if (err == ESP_OK) {
+        // 在卡片下方显示成功状态
+        lcd_show_string(30, 185, 260, 24, 24, "UPDATE READY!", GREEN);
+    } else {
+        lcd_show_string(30, 185, 260, 24, 24, "FAILED!", RED);
+    }
+
+    // 5. 资源回收
     free(buffer);
     fclose(f);
     esp_http_client_cleanup(client);
-
-    if (err == ESP_OK) {
-        ESP_LOGI("DOWNLOAD", "文件保存成功: %d 字节", total_read_len);
-    } else {
-        ESP_LOGE("DOWNLOAD", "下载失败，已保存 %d 字节", total_read_len);
-        // 如果失败，建议在外部逻辑删除该文件
-    }
 
     return err;
 }

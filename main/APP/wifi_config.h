@@ -56,4 +56,5 @@ esp_err_t get_wifi_info_handler(httpd_req_t *req);
 void web_prov_start(void);
 void wifi_background_task(void *pv);
 void initialize_sntp_v5(void) ;
+void web_prov_stop(void);
 #endif

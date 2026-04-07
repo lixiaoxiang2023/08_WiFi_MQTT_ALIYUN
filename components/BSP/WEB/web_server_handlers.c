@@ -1,3 +1,17 @@
+/**
+ * @file web_server_handlers.c
+ * @brief Web服务器处理器实现文件
+ *
+ * 该文件包含ESP32 Web服务器的HTTP请求处理器函数，
+ * 用于处理配置管理、WiFi操作、OTA升级等功能。
+ * 主要功能包括：
+ * - 仪器配置的获取和保存
+ * - WiFi扫描和连接
+ * - 数据上传配置管理
+ * - 产品和平台信息查询
+ * - OTA升级处理
+ */
+
 #include "web_server_handlers.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
@@ -10,23 +24,36 @@
 // 声明 extern 确保可调用
 extern esp_err_t wifi_apply_config(const char *ssid, const char *password);
 
-static const char *TAG_WEB_SERVER = "WEB_SERVER_HANDLERS";
-static nvs_handle_t config_nvs_handle; // 统一的 NVS 句柄
-login_response_t g_strResp = {0};
-QueueHandle_t ota_queue = NULL;
+static const char *TAG_WEB_SERVER = "WEB_SERVER_HANDLERS";  ///< 日志标签
+static nvs_handle_t config_nvs_handle;  ///< 统一的 NVS 句柄，用于存储配置数据
+login_response_t g_strResp = {0};  ///< 全局登录响应结构体
+QueueHandle_t ota_queue = NULL;  ///< OTA升级消息队列句柄
 
-// 用于 wifi_scan_handler
-#define MAX_SCAN_RESULTS 20
+// WiFi扫描相关定义
+#define MAX_SCAN_RESULTS 20  ///< 最大WiFi扫描结果数量
+
+/**
+ * @brief WiFi扫描结果结构体
+ */
 typedef struct {
-    char ssid[33];  // SSID + '\0'
-    int8_t rssi;
+    char ssid[33];  ///< SSID字符串，最长32字节 + 终止符
+    int8_t rssi;    ///< 信号强度(RSSI)
 } scan_result_t;
 
-static scan_result_t g_scan_results[MAX_SCAN_RESULTS];
-static int g_scan_count = 0;
-static bool scan_done = false;
+static scan_result_t g_scan_results[MAX_SCAN_RESULTS];  ///< 全局WiFi扫描结果数组
+static int g_scan_count = 0;  ///< 当前扫描到的WiFi数量
+static bool scan_done = false;  ///< 扫描完成标志
 
-// 初始化 NVS
+/**
+ * @brief 初始化Web配置的NVS存储
+ *
+ * 打开NVS命名空间用于存储Web服务器相关的配置数据。
+ *
+ * @return esp_err_t 操作结果
+ *         - ESP_OK: 初始化成功
+ *         - ESP_ERR_NVS_NOT_INITIALIZED: NVS未初始化
+ *         - ESP_ERR_NVS_NOT_FOUND: 命名空间不存在
+ */
 esp_err_t init_web_config_nvs(void) {
     esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &config_nvs_handle);
     if (err != ESP_OK) {
@@ -35,8 +62,18 @@ esp_err_t init_web_config_nvs(void) {
     return err;
 }
 
-// 保存仪器配置到 NVS
-// 修改后的保存函数
+/**
+ * @brief 保存仪器配置到NVS存储
+ *
+ * 将仪器配置结构体中的数据保存到NVS中，包括平台ID、平台名称、
+ * 产品代码和固件版本。
+ *
+ * @param config 指向仪器配置结构体的指针
+ * @return esp_err_t 操作结果
+ *         - ESP_OK: 保存成功
+ *         - ESP_ERR_INVALID_STATE: NVS句柄未初始化
+ *         - ESP_ERR_NVS_*: NVS相关错误
+ */
 esp_err_t save_instrument_config_to_nvs(const instrument_config_t *config) {
     if (config_nvs_handle == 0) {
         ESP_LOGE(TAG_WEB_SERVER, "NVS handle is not initialized!");
@@ -73,7 +110,15 @@ esp_err_t save_instrument_config_to_nvs(const instrument_config_t *config) {
     return err;
 }
 
-// 从 NVS 加载仪器配置
+/**
+ * @brief 从NVS加载仪器配置
+ *
+ * 从NVS存储中读取仪器配置数据，如果某个字段不存在，
+ * 则使用默认值填充。
+ *
+ * @param config 指向仪器配置结构体的指针，用于存储读取的数据
+ * @return esp_err_t 操作结果（通常返回ESP_OK，即使某些字段未找到）
+ */
 esp_err_t load_instrument_config_from_nvs(instrument_config_t *config) {
     esp_err_t err = ESP_OK;
     size_t len;
@@ -121,7 +166,14 @@ esp_err_t load_instrument_config_from_nvs(instrument_config_t *config) {
     return ESP_OK; // 即使某个字段没找到，我们也返回 OK 保证程序继续运行
 }
 
-// 从 NVS 加载数据上传配置
+/**
+ * @brief 从NVS加载数据上传配置
+ *
+ * 从NVS中读取数据上传相关的配置，包括本地文件路径和上传服务器地址。
+ *
+ * @param config 指向数据上传配置结构体的指针
+ * @return esp_err_t 操作结果
+ */
 esp_err_t load_data_upload_config_from_nvs(data_upload_config_t *config) {
     esp_err_t err = ESP_OK;
     size_t len;
@@ -141,7 +193,14 @@ esp_err_t load_data_upload_config_from_nvs(data_upload_config_t *config) {
     return err;
 }
 
-// 将数据上传配置保存到 NVS
+/**
+ * @brief 将数据上传配置保存到NVS
+ *
+ * 保存数据上传配置到NVS存储中。
+ *
+ * @param config 指向数据上传配置结构体的指针
+ * @return esp_err_t 操作结果
+ */
 esp_err_t save_data_upload_config_to_nvs(const data_upload_config_t *config) {
     esp_err_t err = ESP_OK;
     err |= nvs_set_str(config_nvs_handle, NVS_KEY_LOCAL_FILE, config->local_file);
@@ -156,7 +215,15 @@ esp_err_t save_data_upload_config_to_nvs(const data_upload_config_t *config) {
 }
 
 
-/* HTTP GET handler for /get_instrument_config */
+/**
+ * @brief HTTP GET处理器：获取仪器配置
+ *
+ * 处理前端GET /get_instrument_config请求，返回JSON格式的仪器配置信息，
+ * 包括平台ID、平台名称、产品代码、固件版本以及数据上传配置。
+ *
+ * @param req HTTP请求结构体指针
+ * @return esp_err_t 处理结果
+ */
 esp_err_t get_instrument_config_handler(httpd_req_t *req) {
     instrument_config_t config;
     // 这里不检查load_instrument_config_from_nvs的返回值，因为我们会填充默认空值
@@ -193,7 +260,15 @@ esp_err_t get_instrument_config_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
-/* HTTP POST handler for /save_instrument_config */
+/**
+ * @brief HTTP POST处理器：保存仪器配置
+ *
+ * 处理前端POST /save_instrument_config请求，解析JSON数据并保存到NVS。
+ * 支持更新平台ID、平台名称、产品代码、固件版本以及数据上传配置。
+ *
+ * @param req HTTP请求结构体指针
+ * @return esp_err_t 处理结果
+ */
 esp_err_t save_instrument_config_handler(httpd_req_t *req) {
     char *buf;
     int total_len = req->content_len;
@@ -296,7 +371,17 @@ esp_err_t save_instrument_config_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
-// 扫描完成回调 (从 wifi_config.c 移动过来)
+/**
+ * @brief WiFi扫描完成回调函数
+ *
+ * 当WiFi扫描完成时被调用的回调函数，处理扫描结果，
+ * 去重并按信号强度排序。
+ *
+ * @param arg 用户参数（未使用）
+ * @param event_base 事件基础
+ * @param event_id 事件ID
+ * @param event_data 事件数据
+ */
 static void wifi_scan_done_cb(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data)
 {
     uint16_t ap_num = 0;
@@ -309,14 +394,17 @@ static void wifi_scan_done_cb(void* arg, esp_event_base_t event_base, int32_t ev
     g_scan_count = 0;
     for (int i = 0; i < ap_num; i++) {
         bool found = false;
+        // 去重：检查是否已存在相同的SSID
         for (int j = 0; j < g_scan_count; j++) {
             if (strcmp((char*)ap_records[i].ssid, g_scan_results[j].ssid) == 0) {
                 found = true;
+                // 如果找到相同SSID，保留信号更强的
                 if (ap_records[i].rssi > g_scan_results[j].rssi)
                     g_scan_results[j].rssi = ap_records[i].rssi;
                 break;
             }
         }
+        // 添加新的SSID
         if (!found) {
             strncpy(g_scan_results[g_scan_count].ssid, (char*)ap_records[i].ssid, 32);
             g_scan_results[g_scan_count].ssid[32] = 0;
@@ -327,7 +415,15 @@ static void wifi_scan_done_cb(void* arg, esp_event_base_t event_base, int32_t ev
     scan_done = true;
 }
 
-// wifi_scan_handler (从 wifi_config.c 移动过来)
+/**
+ * @brief HTTP处理器：WiFi扫描
+ *
+ * 处理前端WiFi扫描请求，启动异步WiFi扫描，等待结果并返回JSON格式的WiFi列表。
+ * 结果按信号强度降序排序。
+ *
+ * @param req HTTP请求结构体指针
+ * @return esp_err_t 处理结果
+ */
 esp_err_t wifi_scan_handler(httpd_req_t *req)
 {
     scan_done = false;
@@ -352,6 +448,7 @@ esp_err_t wifi_scan_handler(httpd_req_t *req)
     for (int i = 0; i < g_scan_count - 1; i++) {
         for (int j = i + 1; j < g_scan_count; j++) {
             if (g_scan_results[j].rssi > g_scan_results[i].rssi) {
+                // 交换位置
                 scan_result_t temp = g_scan_results[i];
                 g_scan_results[i] = g_scan_results[j];
                 g_scan_results[j] = temp;
@@ -385,7 +482,14 @@ esp_err_t wifi_scan_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-// connect_wifi_handler (从 wifi_config.c 移动过来)
+/**
+ * @brief HTTP处理器：连接WiFi
+ *
+ * 处理前端WiFi连接请求，解析SSID和密码，调用WiFi配置函数进行连接。
+ *
+ * @param req HTTP请求结构体指针
+ * @return esp_err_t 处理结果
+ */
 esp_err_t connect_wifi_handler(httpd_req_t *req)
 {
     char buf[256] = {0};
@@ -449,7 +553,14 @@ esp_err_t connect_wifi_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-// usb_files_handler (从 wifi_config.c 移动过来)
+/**
+ * @brief HTTP处理器：获取USB文件列表
+ *
+ * 处理前端USB文件列表请求，扫描/disk目录下的文件并返回JSON数组。
+ *
+ * @param req HTTP请求结构体指针
+ * @return esp_err_t 处理结果
+ */
 esp_err_t usb_files_handler(httpd_req_t *req)
 {
     DIR *dir;
@@ -503,7 +614,14 @@ esp_err_t usb_files_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-// get_config_handler (用于获取数据上传配置，从 wifi_config.c 移动过来)
+/**
+ * @brief HTTP处理器：获取数据上传配置
+ *
+ * 处理前端获取数据上传配置的请求，返回本地文件路径和上传服务器地址。
+ *
+ * @param req HTTP请求结构体指针
+ * @return esp_err_t 处理结果
+ */
 esp_err_t get_config_handler(httpd_req_t *req)
 {
     cJSON *root = cJSON_CreateObject();
@@ -524,7 +642,14 @@ esp_err_t get_config_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-// save_config_handler (用于保存数据上传配置，从 wifi_config.c 移动过来)
+/**
+ * @brief HTTP处理器：保存数据上传配置
+ *
+ * 处理前端保存数据上传配置的请求，更新本地文件路径和上传服务器地址到NVS。
+ *
+ * @param req HTTP请求结构体指针
+ * @return esp_err_t 处理结果
+ */
 esp_err_t save_config_handler(httpd_req_t *req)
 {
     char buf[128];
@@ -567,7 +692,14 @@ esp_err_t save_config_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-// get_wifi_info_handler (从 wifi_config.c 移动过来)
+/**
+ * @brief HTTP处理器：获取WiFi连接信息
+ *
+ * 处理前端获取当前WiFi连接信息的请求，返回SSID和密码。
+ *
+ * @param req HTTP请求结构体指针
+ * @return esp_err_t 处理结果
+ */
 esp_err_t get_wifi_info_handler(httpd_req_t *req)
 {
     wifi_config_t wifi_cfg;
@@ -602,7 +734,15 @@ esp_err_t get_wifi_info_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-// 处理前端获取产品列表的请求
+/**
+ * @brief HTTP处理器：获取产品列表
+ *
+ * 处理前端获取产品列表的请求，从缓存的HTTP响应中返回数据。
+ * 如果缓存为空，返回404错误。
+ *
+ * @param req HTTP请求结构体指针
+ * @return esp_err_t 处理结果
+ */
 esp_err_t get_product_list_handler(httpd_req_t *req) {
     // 检查缓存是否为空
     if (g_http_resp.buffer == NULL || strlen((char*)g_http_resp.buffer) == 0) {
@@ -620,7 +760,15 @@ esp_err_t get_product_list_handler(httpd_req_t *req) {
     return httpd_resp_send(req, (const char *)g_http_resp.buffer, g_http_resp.len);
 }
 
-/* 处理前端：GET /api/get_platforms?id=4 */
+/**
+ * @brief HTTP处理器：获取平台列表
+ *
+ * 处理前端GET /api/get_platforms?id=xxx请求，根据产品ID获取对应的平台列表。
+ * 需要网络连接和有效的token。
+ *
+ * @param req HTTP请求结构体指针
+ * @return esp_err_t 处理结果
+ */
 esp_err_t get_platforms_handler(httpd_req_t *req) {
     char buf[128];
     char id_str[16] = {0}; // 稍微加大缓冲区，确保 64 位 ID 安全
@@ -687,7 +835,14 @@ esp_err_t get_platforms_handler(httpd_req_t *req) {
     return httpd_resp_sendstr(req, "{\"code\":-1, \"msg\":\"Remote server timeout or error\"}");
 }
 
-/* 处理前端：GET /api/get_versions?id=13 */
+/**
+ * @brief HTTP处理器：获取版本列表
+ *
+ * 处理前端GET /api/get_versions?id=xxx请求，根据平台ID获取对应的版本列表。
+ *
+ * @param req HTTP请求结构体指针
+ * @return esp_err_t 处理结果
+ */
 esp_err_t get_versions_handler(httpd_req_t *req) {
     char buf[128];
     char id_str[10];
@@ -707,6 +862,15 @@ esp_err_t get_versions_handler(httpd_req_t *req) {
     return ESP_FAIL;
 }
 
+/**
+ * @brief HTTP处理器：OTA升级
+ *
+ * 处理前端OTA升级请求，支持最新版本升级和配置保存。
+ * 如果请求升级最新版本，则将升级消息发送到OTA队列。
+ *
+ * @param req HTTP请求结构体指针
+ * @return esp_err_t 处理结果
+ */
 esp_err_t update_handler(httpd_req_t *req) {
     char buf[512];
     int ret = httpd_req_recv(req, buf, req->content_len);
@@ -721,6 +885,7 @@ esp_err_t update_handler(httpd_req_t *req) {
     cJSON *ver_item = cJSON_GetObjectItem(root, "firmware_version");
     
     if (ver_item && strcmp(ver_item->valuestring, "latest") == 0) {
+        // 处理OTA升级请求
         if (ota_queue != NULL) {
             ota_msg_t msg = {0};
             
@@ -736,6 +901,7 @@ esp_err_t update_handler(httpd_req_t *req) {
             }
 
             ESP_LOGW("WEB_SERVER", "解析后的 Platform ID: %lld", msg.platform_id);
+            // 将OTA消息发送到队列
             if (xQueueSend(ota_queue, &msg, 0) == pdPASS) {
                 httpd_resp_sendstr(req, "OK: 升级指令已加入队列");
             } else {

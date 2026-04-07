@@ -19,65 +19,114 @@ typedef enum {
     WIFI_MODE_STA_ONLY      // 纯 STA
 } wifi_user_mode_t;
 
+/**
+ * @brief  系统主页 (卡片式布局 - 视觉统一版)
+ * @note   已移除互斥锁，请确保仅在单任务(如 WiFi 事件或主循环)中调用
+ */
+void lcd_show_homepage(const char *ssid, const char *ip_str, bool is_config_mode)
+{
+    // 1. 底层背景：全屏刷浅灰色 (统一环境底色)
+    lcd_clear(LGRAY);
+
+    // 2. 顶层装饰：深蓝色标题栏 (0-45px)
+    // 使用填充函数创建色块，增加 UI 层次感
+    lcd_fill(0, 0, 320, 45, DARKBLUE);
+    lcd_show_string(15, 12, 290, 24, 24, "SYSTEM MONITOR", BLACK);
+
+    // 3. 中间层卡片：白色实心矩形 (解决背景不统一的核心)
+    // 将所有文字区域统一背景为白色，这样文字渲染时边缘不会有灰色毛刺
+    lcd_fill(15, 60, 305, 165, WHITE); 
+    lcd_draw_rectangle(15, 60, 305, 165, GRAYBLUE); // 绘制细边框
+
+    // --- 开始在白色卡片内写字 ---
+    
+    // A. 运行状态
+    lcd_show_string(30, 75, 80, 16, 16, "Status:", BLACK);
+    if (is_config_mode) {
+        lcd_show_string(110, 75, 180, 16, 16, "STA+AP Config", GREEN);
+    } else {
+        lcd_show_string(110, 75, 180, 16, 16, "STA Only", GREEN);
+    }
+
+    // B. WiFi SSID (名称)
+    lcd_show_string(30, 105, 80, 16, 16, "SSID  :", BLACK);
+    // 判空处理：如果 SSID 为空则显示连接中
+    char *display_ssid = (ssid && strlen(ssid) > 0) ? (char *)ssid : "Connecting...";
+    lcd_show_string(110, 105, 180, 16, 16, display_ssid, DARKBLUE);
+
+    // C. IP 地址
+    lcd_show_string(30, 135, 80, 16, 16, "IP    :", BLACK);
+    char *display_ip = (ip_str && strlen(ip_str) > 0) ? (char *)ip_str : "0.0.0.0";
+    lcd_show_string(110, 135, 180, 16, 16, display_ip, BLUE);
+
+    // 4. 底部页脚：装饰线与版本号
+    lcd_draw_hline(20, 195, 280, GRAYBLUE);
+    
+    char ver_buf[32];
+    snprintf(ver_buf, sizeof(ver_buf), "Ver: %s | HW: V1.0", FW_VERSION);
+    // 使用小字体渲染版本号，放置在屏幕最下方
+    lcd_show_string(30, 210, 260, 12, 12, ver_buf, GRAY);
+}
+
 static wifi_user_mode_t g_wifi_user_mode = WIFI_MODE_STA_ONLY;
 
 void wifi_switch_mode(void)
 {
     ESP_LOGI("WIFI", "Switching WiFi mode from %d...", g_wifi_user_mode);
 
-    // 1️⃣ 安全停止并销毁 MQTT
+    // --- 1. 中间过渡状态 ---
+    // 先显示一个切换中的界面，避免屏幕长时间停留在旧信息上
+    lcd_clear(LGRAY);
+    lcd_show_string(30, 110, 260, 16, 16, "System Switching...", BRRED);
+
+    // 2. 安全停止并销毁 MQTT
     if (client) {
-        ESP_LOGI("WIFI", "Stopping MQTT client...");
         esp_mqtt_client_stop(client);
-        // 给一点时间让 MQTT 线程退出循环
         vTaskDelay(pdMS_TO_TICKS(100)); 
         esp_mqtt_client_destroy(client);
         client = NULL;
     }
 
-    // 2️⃣ 停止 WiFi 驱动
-    // 注意：stop 会清空当前的连接状态
-    esp_err_t err = esp_wifi_stop();
-    if (err != ESP_OK) {
-        ESP_LOGE("WIFI", "Failed to stop wifi: %s", esp_err_to_name(err));
-    }
+    // 3. 停止 WiFi 驱动
+    esp_wifi_stop();
 
-    // 3️⃣ 根据逻辑切换模式
+    // --- 4. 模式切换与 LCD 调用 ---
     if (g_wifi_user_mode == WIFI_MODE_WEB_CONFIG)
     {
-        // 目标：纯客户端模式 (STA)
+        /* 目标：进入纯 STA 模式 */
         ESP_LOGI("WIFI", "Switching to [STA ONLY] Mode");
-        //lcd_clear_line(110); // 建议封装个清行函数
-        lcd_show_string(30, 110, 200, 16, 16, "Mode: STA", RED);
+        
+        // 尝试获取之前保存的配置信息（用于显示即将连接的 SSID）
+        wifi_config_t conf;
+        esp_wifi_get_config(WIFI_IF_STA, &conf);
+        
+        // 调用你要求的 LCD 主页显示
+        // 刚切换时 IP 还没拿到，所以传 NULL 或 "Connecting..."
+        lcd_show_homepage((char *)conf.sta.ssid, "Waiting for IP...", false);
 
+        web_prov_stop(); 
         ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
         g_wifi_user_mode = WIFI_MODE_STA_ONLY;
     }
     else
     {
-        // 目标：配网模式 (AP + STA)
+        /* 目标：进入 AP + STA 配网模式 */
         ESP_LOGI("WIFI", "Switching to [AP + STA] Mode");
-        lcd_show_string(30, 110, 200, 16, 16, "Mode: AP+STA", RED);
-        lcd_show_string(30, 130, 200, 16, 16, "IP: 192.168.4.1", RED);
+        
+        // 配网模式下，SSID 通常是设备自身的热点名称 (如 ESP32-S3-Config)
+        lcd_show_homepage("ESP32_Config", "192.168.4.1", true);
 
         ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
-        
-        // 启动 Web 服务前，建议在内部先 stop 掉旧的防止重叠
         web_prov_start(); 
         g_wifi_user_mode = WIFI_MODE_WEB_CONFIG;
     }
 
-    // 4️⃣ 重新启动 WiFi
+    // 5. 重新启动 WiFi 并连接
     ESP_ERROR_CHECK(esp_wifi_start());
+    esp_wifi_connect(); 
 
-    // 5️⃣ 核心连接逻辑
-    //if (g_wifi_user_mode == WIFI_MODE_STA_ONLY)
-    {
-    //    ESP_LOGI("WIFI", "Connecting to AP...");
-        esp_wifi_connect(); 
-    }
+    ESP_LOGI("WIFI", "WiFi mode switch finished.");
 }
-
 
 // Static handle to the OTA update task, initialized to NULL
 static TaskHandle_t xOtaTaskHandle = NULL;
@@ -261,6 +310,11 @@ void ota_daemon_task(void *pvParameter) {
 void key_scan_task(void *arg)
 {
     uint8_t key;
+
+    wifi_config_t conf;
+    esp_wifi_get_config(WIFI_IF_STA, &conf);
+
+    lcd_show_homepage((char *)conf.sta.ssid, "Waiting for IP...", false);
 
     while(1)
     {
