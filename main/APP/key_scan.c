@@ -20,51 +20,56 @@ typedef enum {
 } wifi_user_mode_t;
 
 /**
- * @brief  系统主页 (卡片式布局 - 视觉统一版)
- * @note   已移除互斥锁，请确保仅在单任务(如 WiFi 事件或主循环)中调用
+ * @brief  系统主页 (彻底修复补丁与对齐版)
  */
 void lcd_show_homepage(const char *ssid, const char *ip_str, bool is_config_mode)
 {
-    // 1. 底层背景：全屏刷浅灰色 (统一环境底色)
+    // --- 第一阶段：背景预设 ---
     lcd_clear(LGRAY);
 
-    // 2. 顶层装饰：深蓝色标题栏 (0-45px)
-    // 使用填充函数创建色块，增加 UI 层次感
+    // --- 第二阶段：顶部标题区 (解决照片中最明显的白色补丁) ---
     lcd_fill(0, 0, 320, 45, DARKBLUE);
-    lcd_show_string(15, 12, 290, 24, 24, "SYSTEM MONITOR", BLACK);
-
-    // 3. 中间层卡片：白色实心矩形 (解决背景不统一的核心)
-    // 将所有文字区域统一背景为白色，这样文字渲染时边缘不会有灰色毛刺
-    lcd_fill(15, 60, 305, 165, WHITE); 
-    lcd_draw_rectangle(15, 60, 305, 165, GRAYBLUE); // 绘制细边框
-
-    // --- 开始在白色卡片内写字 ---
     
-    // A. 运行状态
+    // 【核心修正】在显示标题文字前，强制同步驱动背景色为深蓝色
+    g_back_color = DARKBLUE; 
+    // 建议标题使用白色，在深蓝底上最清晰
+    lcd_show_string(15, 12, 290, 24, 24, "SYSTEM MONITOR", WHITE);
+
+    // --- 第三阶段：中央信息卡片区 ---
+    // 为了美观和避开补丁，我们手动画一个纯白卡片
+    lcd_fill(15, 60, 305, 165, WHITE); 
+    lcd_draw_rectangle(15, 60, 305, 165, GRAYBLUE);
+
+    // 【核心修正】在进入卡片区写字前，强制同步驱动背景色为白色
+    g_back_color = WHITE; 
+
+    // 状态显示
     lcd_show_string(30, 75, 80, 16, 16, "Status:", BLACK);
     if (is_config_mode) {
-        lcd_show_string(110, 75, 180, 16, 16, "STA+AP Config", GREEN);
+        lcd_show_string(110, 75, 180, 16, 16, "STA+AP Config", RED);
     } else {
-        lcd_show_string(110, 75, 180, 16, 16, "STA Only", GREEN);
+        lcd_show_string(110, 75, 180, 16, 16, "STA Only     ", GREEN); // 加空格覆盖旧字符
     }
 
-    // B. WiFi SSID (名称)
+    // WiFi SSID
     lcd_show_string(30, 105, 80, 16, 16, "SSID  :", BLACK);
-    // 判空处理：如果 SSID 为空则显示连接中
-    char *display_ssid = (ssid && strlen(ssid) > 0) ? (char *)ssid : "Connecting...";
+    char *display_ssid = (ssid && strlen(ssid) > 0) ? (char *)ssid : "Searching... ";
     lcd_show_string(110, 105, 180, 16, 16, display_ssid, DARKBLUE);
 
-    // C. IP 地址
+    // IP 地址
     lcd_show_string(30, 135, 80, 16, 16, "IP    :", BLACK);
-    char *display_ip = (ip_str && strlen(ip_str) > 0) ? (char *)ip_str : "0.0.0.0";
+    char *display_ip = (ip_str && strlen(ip_str) > 0) ? (char *)ip_str : "Waiting for IP...";
     lcd_show_string(110, 135, 180, 16, 16, display_ip, BLUE);
 
-    // 4. 底部页脚：装饰线与版本号
+    // --- 第四阶段：底部页脚区 ---
+    // 画横线装饰
     lcd_draw_hline(20, 195, 280, GRAYBLUE);
+    
+    // 【核心修正】页脚在灰色背景上，同步背景色为灰色
+    g_back_color = LGRAY; 
     
     char ver_buf[32];
     snprintf(ver_buf, sizeof(ver_buf), "Ver: %s | HW: V1.0", FW_VERSION);
-    // 使用小字体渲染版本号，放置在屏幕最下方
     lcd_show_string(30, 210, 260, 12, 12, ver_buf, GRAY);
 }
 

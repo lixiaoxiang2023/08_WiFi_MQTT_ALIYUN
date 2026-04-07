@@ -278,28 +278,30 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
     if (url == NULL || filename == NULL) return ESP_ERR_INVALID_ARG;
 
     // --- 1. UI 风格统一初始化 ---
-    lcd_clear(LGRAY); // 统一背景色
+    lcd_clear(LGRAY); 
     
-    // 顶部标题栏 (与主页一致的深蓝底白字)
+    // 顶部标题栏
     lcd_fill(0, 0, 320, 45, DARKBLUE);
-    lcd_show_string(15, 12, 290, 24, 24, "FIRMWARE UPGRADE", BLACK);
+    // 【关键】标题栏背景同步
+    g_back_color = DARKBLUE; 
+    lcd_show_string(15, 12, 290, 24, 24, "FIRMWARE UPGRADE", WHITE); // 改为白字更美观
 
-    // 中央进度卡片 (白色底板)
+    // 中央进度卡片
     lcd_fill(15, 60, 305, 175, WHITE); 
     lcd_draw_rectangle(15, 60, 305, 175, GRAYBLUE);
 
-    // 提取纯文件名并显示在卡片内
+    // 【关键】进入白色卡片区，背景同步为白色
+    g_back_color = WHITE; 
+
     const char *short_name = strrchr(filename, '/');
     short_name = (short_name == NULL) ? filename : (short_name + 1);
-    
     lcd_show_string(30, 75, 240, 16, 16, "Target File:", BLACK);
     lcd_show_string(30, 95, 240, 16, 16, (char *)short_name, BLUE);
 
-    // 绘制进度条外框 (在卡片内部)
-    // 假设 BAR_X=30, BAR_Y=140, BAR_WIDTH=260, BAR_HEIGHT=15
+    // 进度条外框
     lcd_draw_rectangle(BAR_X - 1, BAR_Y - 1, BAR_X + BAR_WIDTH + 1, BAR_Y + BAR_HEIGHT + 1, GRAYBLUE);
 
-    // 2. 资源准备 (文件与网络)
+    // 2. 资源准备
     FILE *f = fopen(filename, "wb");
     if (f == NULL) {
         lcd_show_string(30, 185, 260, 16, 16, "Error: USB Disk Error", RED);
@@ -310,8 +312,7 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
         .url = url,
         .method = HTTP_METHOD_GET,
         .timeout_ms = 40000,
-        .buffer_size = 8192,         // 增加缓冲区
-        .buffer_size_tx = 1024,
+        .buffer_size = 8192,
         .skip_cert_common_name_check = true,
     };
     
@@ -332,7 +333,7 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
     int total_read_len = 0;
     int last_percentage = -1;
     char *buffer = malloc(4096);
-    if (buffer == NULL) { /* 处理内存失败 */ }
+    if (buffer == NULL) return ESP_ERR_NO_MEM;
 
     while (true) {
         int read_len = esp_http_client_read(client, buffer, 4096);
@@ -340,18 +341,17 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
             fwrite(buffer, 1, read_len, f);
             total_read_len += read_len;
 
-            // --- 进度逻辑刷新 ---
             if (content_length > 0) {
                 int percentage = (int)((total_read_len * 100) / content_length);
                 if (percentage != last_percentage) {
                     last_percentage = percentage;
 
-                    // 在白色卡片内更新百分比文字
+                    // 【关键】确保在白色卡片内刷文字背景为白色
+                    g_back_color = WHITE; 
                     char p_str[32];
-                    snprintf(p_str, sizeof(p_str), "Downloading: %d%%", percentage);
+                    snprintf(p_str, sizeof(p_str), "Downloading: %d%%  ", percentage);
                     lcd_show_string(30, 120, 200, 16, 16, p_str, DARKBLUE);
 
-                    // 填充进度条 (使用绿色)
                     int current_fill = (BAR_WIDTH * percentage) / 100;
                     if (current_fill > 0) {
                         lcd_fill(BAR_X, BAR_Y, BAR_X + current_fill, BAR_Y + BAR_HEIGHT, GREEN);
@@ -365,9 +365,10 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
         }
     }
 
-    // 4. 结果展示 (依然保持在统一布局下)
+    // 4. 结果展示
+    // 结果文字在卡片下方（LGRAY背景区）
+    g_back_color = LGRAY; 
     if (err == ESP_OK) {
-        // 在卡片下方显示成功状态
         lcd_show_string(30, 185, 260, 24, 24, "UPDATE READY!", GREEN);
     } else {
         lcd_show_string(30, 185, 260, 24, 24, "FAILED!", RED);

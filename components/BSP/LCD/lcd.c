@@ -27,6 +27,7 @@
 
 
 #define SPI_LCD_TYPE    1           /* SPI接口屏幕类型（1：2.4寸SPILCD  0：1.3寸SPILCD） */  
+uint16_t g_back_color = 0xFFFF;
 
 spi_device_handle_t MY_LCD_Handle;
 uint8_t lcd_buf[LCD_TOTAL_BUF_SIZE];
@@ -465,56 +466,66 @@ void lcd_draw_circle(uint16_t x0, uint16_t y0, uint16_t r, uint16_t color)
  * @param       color : 字符的颜色;
  * @retval      无
  */
+/**
+ * @brief       在指定位置显示一个字符
+ * @param       x,y   : 字符显示坐标
+ * @param       chr   : 待显示的字符
+ * @param       size  : 字体大小 (12/16/24/32)
+ * @param       mode  : 叠加模式 (0: 非叠加; 1: 叠加)
+ * @param       color : 字符颜色
+ * @retval      无
+ */
 void lcd_show_char(uint16_t x, uint16_t y, uint8_t chr, uint8_t size, uint8_t mode, uint16_t color)
 {
-    uint8_t temp = 0,t1 = 0, t = 0;
+    uint8_t temp = 0, t1 = 0, t = 0;
     uint8_t *pfont = 0;
-    uint8_t csize = 0;                                      /* 得到字体一个字符对应点阵集所占的字节数 */
+    uint8_t csize = 0;      /* 得到一个字符对应点阵集所占的字节数 */
     uint16_t colortemp = 0;
     uint8_t sta = 0;
 
-    csize = (size / 8 + ((size % 8) ? 1 : 0)) * (size / 2); /* 得到字体一个字符对应点阵集所占的字节数 */
-    chr = chr - ' ';                                        /* 得到偏移后的值（ASCII字库是从空格开始取模，所以-' '就是对应字符的字库） */
+    /* 1. 计算字符偏移 */
+    chr = chr - ' '; 
 
+    /* 2. 边界检查 */
     if ((x > (lcd_self.width - size / 2)) || (y > (lcd_self.height - size)))
     {
         return;
     }
 
-    lcd_set_window(x, y, x + size / 2 - 1, y + size - 1);   /* (x,y,x+8-1,y+16-1) */
+    /* 3. 设置显示窗口 */
+    lcd_set_window(x, y, x + size / 2 - 1, y + size - 1);
 
+    /* 4. 选择字库 */
     switch (size)
     {
         case 12:
-            pfont = (uint8_t *)asc2_1206[chr];              /* 调用1206字体 */
+            pfont = (uint8_t *)asc2_1206[chr];
             sta = 6;
             break;
-
         case 16:
-            pfont = (uint8_t *)asc2_1608[chr];              /* 调用1608字体 */
+            pfont = (uint8_t *)asc2_1608[chr];
             sta = 8;
             break;
-
         case 24:
-            pfont = (uint8_t *)asc2_2412[chr];              /* 调用2412字体 */
+            pfont = (uint8_t *)asc2_2412[chr];
             break;
-
         case 32:
-            pfont = (uint8_t *)asc2_3216[chr];              /* 调用3216字体 */
+            pfont = (uint8_t *)asc2_3216[chr];
             sta = 8;
             break;
-
         default:
-            return ;
+            return;
     }
 
+    /* 5. 字符绘制逻辑 */
     if (size != 24)
     {
+        /* 12, 16, 32 号字体绘制 */
         csize = (size / 8 + ((size % 8) ? 1 : 0)) * (size / 2);
         
         for (t = 0; t < csize; t++)
         {
-            temp = pfont[t];                                /* 获取字符的点阵数据 */
+            temp = pfont[t];
 
             for (t1 = 0; t1 < sta; t1++)
             {
@@ -522,9 +533,10 @@ void lcd_show_char(uint16_t x, uint16_t y, uint8_t chr, uint8_t size, uint8_t mo
                 {
                     colortemp = color;
                 }
-                else if (mode == 0)                     /* 无效点,不显示 */
+                else if (mode == 0) 
                 {
-                    colortemp = 0xFFFF;
+                    // 使用全局背景色变量，不再死写 0xFFFF
+                    colortemp = g_back_color; 
                 }
 
                 lcd_write_data16(colortemp);
@@ -534,30 +546,26 @@ void lcd_show_char(uint16_t x, uint16_t y, uint8_t chr, uint8_t size, uint8_t mo
     }
     else
     {
+        /* 24 号字体绘制 (特殊处理逻辑) */
         csize = (size * 16) / 8;
         
         for (t = 0; t < csize; t++)
         {
             temp = asc2_2412[chr][t];
 
-            if (t % 2 == 0)
-            {
-                sta = 8;
-            }
-            else
-            {
-                sta = 4;
-            }
+            if (t % 2 == 0) sta = 8;
+            else sta = 4;
 
             for (t1 = 0; t1 < sta; t1++)
             {
-                if(temp & 0x80)
+                if (temp & 0x80)
                 {
                     colortemp = color;
                 }
-                else if (mode == 0)                         /* 无效点,不显示 */
+                else if (mode == 0) 
                 {
-                    colortemp = 0xFFFF;
+                    // --- 核心修正：同步 24 号字的背景颜色 ---
+                    colortemp = g_back_color; 
                 }
 
                 lcd_write_data16(colortemp);

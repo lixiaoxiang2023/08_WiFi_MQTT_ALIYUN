@@ -125,6 +125,7 @@ typedef struct _lcd_obj_t
 /* 导出相关变量 */
 extern lcd_obj_t lcd_self;
 extern uint8_t lcd_buf[LCD_TOTAL_BUF_SIZE];
+extern uint16_t g_back_color;
 
 /* 函数声明 */
 void lcd_init(void);                                                                                                    /* 初始化LCD */
