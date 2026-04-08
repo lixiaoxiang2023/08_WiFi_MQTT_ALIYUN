@@ -20,6 +20,7 @@
 #include "stdlib.h" // For malloc/free
 #include "esp_wifi.h" // 用于 wifi_scan_handler, connect_wifi_handler, get_wifi_info_handler
 #include "web_pages.h" // 用于 FW_VERSION 和 HW_VERSION
+#include "obs_http.h" // 用于 HTTP API 调用
 // 引入 wifi_config.h 的相关函数，以便在 connect_wifi_handler 中调用 wifi_apply_config
 // 声明 extern 确保可调用
 extern esp_err_t wifi_apply_config(const char *ssid, const char *password);
@@ -235,7 +236,7 @@ esp_err_t get_instrument_config_handler(httpd_req_t *req) {
 
     cJSON *root = cJSON_CreateObject();
     if (!root) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create JSON object");
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "创建JSON对象失败");
         return ESP_FAIL;
     }
 
@@ -250,7 +251,7 @@ esp_err_t get_instrument_config_handler(httpd_req_t *req) {
     cJSON_Delete(root);
 
     if (!json_string) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to print JSON");
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "JSON序列化失败");
         return ESP_FAIL;
     }
 
@@ -275,12 +276,12 @@ esp_err_t save_instrument_config_handler(httpd_req_t *req) {
     int cur_len = 0;
     if (total_len >= 512) { // 防止过大的请求体，根据实际情况调整
         ESP_LOGE(TAG_WEB_SERVER, "Request content length too large: %d", total_len);
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Content too large");
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "请求内容过大");
         return ESP_FAIL;
     }
     buf = (char *)malloc(total_len + 1);
     if (!buf) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to allocate memory for request body");
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "内存分配失败");
         return ESP_FAIL;
     }
 
@@ -300,7 +301,7 @@ esp_err_t save_instrument_config_handler(httpd_req_t *req) {
     cJSON *root = cJSON_Parse(buf);
     free(buf); // Release buffer after parsing
     if (!root) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Failed to parse JSON");
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "JSON解析失败");
         return ESP_FAIL;
     }
 
@@ -354,7 +355,7 @@ esp_err_t save_instrument_config_handler(httpd_req_t *req) {
     if (err_instr != ESP_OK || err_data != ESP_OK) {
         ESP_LOGE(TAG_WEB_SERVER, "保存配置到 NVS 失败! Instr err: %s, Data err: %s",
                  esp_err_to_name(err_instr), esp_err_to_name(err_data));
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save config to NVS");
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "保存配置失败");
         return ESP_FAIL;
     }
 
@@ -367,7 +368,7 @@ esp_err_t save_instrument_config_handler(httpd_req_t *req) {
     ESP_LOGI(TAG_WEB_SERVER, "==============================================");
 
     // 3. 返回响应给 Web 前端
-    httpd_resp_sendstr(req, "Configuration saved successfully and logged.");
+    httpd_resp_sendstr(req, "配置保存成功！");
     return ESP_OK;
 }
 
@@ -498,7 +499,7 @@ esp_err_t connect_wifi_handler(httpd_req_t *req)
     int received = 0;
 
     if (total_len >= sizeof(buf)) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Content too long");
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "内容过长");
         return ESP_FAIL;
     }
 
@@ -518,7 +519,7 @@ esp_err_t connect_wifi_handler(httpd_req_t *req)
     // 🔥 解析 JSON
     cJSON *root = cJSON_Parse(buf);
     if (!root) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "无效的JSON格式");
         return ESP_FAIL;
     }
 
@@ -527,7 +528,7 @@ esp_err_t connect_wifi_handler(httpd_req_t *req)
 
     if (!cJSON_IsString(ssid_item) || !cJSON_IsString(pwd_item)) {
         cJSON_Delete(root);
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid parameters");
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "无效的参数");
         return ESP_FAIL;
     }
 
@@ -539,7 +540,7 @@ esp_err_t connect_wifi_handler(httpd_req_t *req)
 
     if (strlen(ssid) == 0) {
         cJSON_Delete(root);
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "SSID empty");
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "SSID不能为空");
         return ESP_FAIL;
     }
 
@@ -570,7 +571,7 @@ esp_err_t usb_files_handler(httpd_req_t *req)
     ESP_LOGI(TAG_WEB_SERVER, "usb_files_handler CALLED");
     if (!root)
     {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "JSON create failed");
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "创建JSON数组失败");
         return ESP_FAIL;
     }
 
@@ -655,14 +656,14 @@ esp_err_t save_config_handler(httpd_req_t *req)
     char buf[128];
     int ret = httpd_req_recv(req, buf, req->content_len);
     if (ret <= 0) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to receive data");
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "接收数据失败");
         return ESP_FAIL;
     }
     buf[ret] = 0;
 
     cJSON *json = cJSON_Parse(buf);
     if (!json) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "无效的JSON格式");
         return ESP_FAIL;
     }
 
@@ -684,7 +685,7 @@ esp_err_t save_config_handler(httpd_req_t *req)
     cJSON_Delete(json);
 
     if (save_err != ESP_OK) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save data config to NVS");
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "保存数据配置失败");
         return ESP_FAIL;
     }
 
@@ -744,15 +745,21 @@ esp_err_t get_wifi_info_handler(httpd_req_t *req)
  * @return esp_err_t 处理结果
  */
 esp_err_t get_product_list_handler(httpd_req_t *req) {
-    // 检查缓存是否为空
+    // ⭐ 每次请求都重新获取产品列表，而不是依赖缓存
+    if (!http_get_all_products(g_strResp.token)) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "获取产品列表失败");
+        return ESP_FAIL;
+    }
+
+    // 检查响应是否为空
     if (g_http_resp.buffer == NULL || strlen((char*)g_http_resp.buffer) == 0) {
-        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "数据未同步，请先按 KEY0");
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "产品列表为空");
         return ESP_FAIL;
     }
 
     // ⭐ 设置响应头为 JSON 格式
     httpd_resp_set_type(req, "application/json");
-    
+
     // ⭐ 跨域设置（如果需要，防止某些浏览器拦截）
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
 
@@ -780,7 +787,7 @@ esp_err_t get_platforms_handler(httpd_req_t *req) {
     if (!(bits & WIFI_CONNECTED_BIT)) {
         ESP_LOGW("HTTP_SERVER", "STA 未联网，拒绝请求");
         httpd_resp_set_status(req, "503 Service Unavailable");
-        return httpd_resp_sendstr(req, "{\"code\":-1, \"msg\":\"WiFi not connected to internet\"}");
+        return httpd_resp_sendstr(req, "{\"code\":-1, \"msg\":\"WiFi未连接到互联网\"}");
     }
     */
 
@@ -788,21 +795,21 @@ esp_err_t get_platforms_handler(httpd_req_t *req) {
     err = httpd_req_get_url_query_str(req, buf, sizeof(buf));
     if (err != ESP_OK) {
         ESP_LOGW("HTTP_SERVER", "URL 无查询参数");
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing Query String");
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "缺少查询参数");
         return ESP_FAIL;
     }
 
     // 3. 提取 ID 字段
     if (httpd_query_key_value(buf, "id", id_str, sizeof(id_str)) != ESP_OK) {
         ESP_LOGW("HTTP_SERVER", "参数中缺少 ID");
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "ID Parameter Required");
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "需要ID参数");
         return ESP_FAIL;
     }
 
     // 4. 将字符串安全转为 int64_t
     int64_t product_id = atoll(id_str);
     if (product_id <= 0) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid Product ID");
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "无效的产品ID");
         return ESP_FAIL;
     }
 

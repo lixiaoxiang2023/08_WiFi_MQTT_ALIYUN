@@ -313,6 +313,7 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
         .method = HTTP_METHOD_GET,
         .timeout_ms = 40000,
         .buffer_size = 8192,
+        .buffer_size_tx = 2048,      // 增加发送缓冲区
         .skip_cert_common_name_check = true,
     };
     
