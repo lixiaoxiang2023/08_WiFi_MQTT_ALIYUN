@@ -54,6 +54,7 @@
  * @{
  */
 #define NVS_KEY_PLATFORM_CODE     "plat_id"      ///< 平台ID（发送给服务器用）
+#define NVS_KEY_PLATFORM_CODE_STR "plat_code"    ///< 平台代码（HTTP接收用）
 #define NVS_KEY_PLATFORM_NAME     "plat_name"    ///< 平台名称（本地显示用）
 #define NVS_KEY_PRODUCT_CODE      "prod_code"    ///< 产品代码
 #define NVS_KEY_FIRMWARE_VERSION  "fw_version"   ///< 固件版本
@@ -73,6 +74,7 @@
  */
 typedef struct {
     char product_code[32];     ///< 产品代码字符串
+    char platform_code[32];    ///< 平台代码（HTTP接收用）
     char platform_name[64];    ///< 平台名称（如"ESP32-S3-Dev"）
     char platform_id[16];      ///< 平台ID字符串（如"13"）
     char firmware_version[32]; ///< 固件版本字符串

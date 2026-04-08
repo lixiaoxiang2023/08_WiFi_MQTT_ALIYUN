@@ -348,6 +348,24 @@ bool parse_ota_response(const char *json_data, ota_info_t *out_info) {
         }
     }
 
+    if (out_info->url[0] == '\0') {
+        ESP_LOGW(TAG, "OTA response does not contain download URL");
+        cJSON_Delete(root);
+        return false;
+    }
+
+    if (out_info->file_name[0] == '\0') {
+        const char *basename = strrchr(out_info->url, '/');
+        if (basename && basename[1] != '\0') {
+            strlcpy(out_info->file_name, basename + 1, sizeof(out_info->file_name));
+            ESP_LOGW(TAG, "OTA response missing file name; inferred from URL: %s", out_info->file_name);
+        } else {
+            ESP_LOGW(TAG, "OTA response does not contain file name and could not infer one from URL");
+            cJSON_Delete(root);
+            return false;
+        }
+    }
+
     cJSON_Delete(root);
     return true;
 }

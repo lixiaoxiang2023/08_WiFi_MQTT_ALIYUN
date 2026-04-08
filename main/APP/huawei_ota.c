@@ -396,7 +396,7 @@ void ota_check_and_confirm(void)
 
 /**
  * @brief 从指定路径读取固件并写入 OTA 分区
- * @param bin_path 固件在 U 盘中的完整路径 (如 "/disk/update.bin")
+ * @param bin_path 固件在 TF卡中的完整路径 (如 "/0:/update.bin")
  */
 esp_err_t ota_from_usb(const char *bin_path) {
     if (bin_path == NULL) {

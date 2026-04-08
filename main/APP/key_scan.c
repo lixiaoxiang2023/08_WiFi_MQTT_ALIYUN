@@ -147,8 +147,21 @@ static void ota_update_task(void *arg)
         // ⭐ 1. 登录成功 → 请求版本
         if (http_get_version(resp.token)) {
             char buf[256] = {0};
-            // 拼接 U 盘完整路径 (例如: /usb/ota_data_initial.bin)
-            snprintf(buf, sizeof(buf), "%s/%s", USB_PATH, g_download_info.file_name);
+            const char *file_name = g_download_info.file_name;
+
+            // 如果响应中没有 file_name，则从 URL 取基名
+            if (file_name == NULL || file_name[0] == '\0') {
+                const char *basename = strrchr(g_download_info.url, '/');
+                if (basename && basename[1] != '\0') {
+                    file_name = basename + 1;
+                } else {
+                    file_name = "ota_update.bin";
+                }
+                ESP_LOGW("MAIN", "文件名缺失，使用备用文件名: %s", file_name);
+            }
+
+            // 拼接 U 盘完整路径
+            snprintf(buf, sizeof(buf), "%s/%s", USB_PATH, file_name);
             strcpy(g_strWriteLocalFileName, buf);
 
             // ⭐ 2. 开始下载到 U 盘
@@ -242,9 +255,19 @@ esp_err_t run_full_upgrade_chain(const char *token) {
     if (strlen(target_version_str) == 0) { ESP_LOGE("MAIN", "版本列表为空或解析失败"); return ESP_FAIL; }
 
     // --- STEP 4: 请求 DOWNLOAD_URL 获取该版本的下载指令 (解析逻辑已修正) ---
+    instrument_config_t instr_config = {0};
+    if (load_instrument_config_from_nvs(&instr_config) != ESP_OK) {
+        ESP_LOGE("MAIN", "无法加载配置，无法构造下载请求");
+        return ESP_FAIL;
+    }
+    if (instr_config.platform_code[0] == '\0' || instr_config.product_code[0] == '\0') {
+        ESP_LOGE("MAIN", "配置中缺少 platform_code 或 product_code");
+        return ESP_FAIL;
+    }
+
     cJSON *req_root = cJSON_CreateObject();
-    cJSON_AddStringToObject(req_root, "platformcode", PLAT_FORM_CODE);
-    cJSON_AddStringToObject(req_root, "productcode", PRODUCT_CODE);
+    cJSON_AddStringToObject(req_root, "platformcode", instr_config.platform_code);
+    cJSON_AddStringToObject(req_root, "productcode", instr_config.product_code);
     cJSON_AddStringToObject(req_root, "version", target_version_str);
     char *json_body = cJSON_PrintUnformatted(req_root);
     

@@ -75,10 +75,10 @@
 #define EVENT_UPLOAD     "get_upload_url"
 
 #define SPIFFS_PATH   "/spiffs"//写入读取 SPIFFS 文件名称
-#define USB_PATH    "/disk"//写入读取 SPIFFS 文件名称
+#define USB_PATH    "/0:"//写入读取 SPIFFS 文件名称
 
 #define SPIFFS_FILE_NAME    "/spiffs/123.txt"//写入读取 SPIFFS 文件名称
-#define USB_FILE_NAME    "/disk/123.txt"//写入读取 SPIFFS 文件名称
+#define USB_FILE_NAME    "/0:/123.txt"//写入读取 SPIFFS 文件名称
 #define OBS_LOAD_FILE_NAME    "23.txt"//OBS 上传文件名称
 #define OBS_DOWN_FILE_NAME    "EMA1.bin"//OBS 下载文件名称
 //#define OBS_ENDPOINT      "obs.cn-south-1.myhuaweicloud.com"

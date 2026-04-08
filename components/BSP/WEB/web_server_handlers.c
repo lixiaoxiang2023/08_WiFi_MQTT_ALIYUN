@@ -29,6 +29,22 @@ static const char *TAG_WEB_SERVER = "WEB_SERVER_HANDLERS";  ///< 日志标签
 static nvs_handle_t config_nvs_handle;  ///< 统一的 NVS 句柄，用于存储配置数据
 login_response_t g_strResp = {0};  ///< 全局登录响应结构体
 QueueHandle_t ota_queue = NULL;  ///< OTA升级消息队列句柄
+static char *platform_list_json = NULL;  ///< 缓存的平台列表JSON字符串
+
+static bool refresh_http_token(void)
+{
+    login_response_t new_login = {0};
+
+    if (!http_login(&new_login)) {
+        ESP_LOGW(TAG_WEB_SERVER, "HTTP token refresh failed");
+        return false;
+    }
+
+    free_login_response(&g_strResp);
+    g_strResp = new_login;
+    ESP_LOGI(TAG_WEB_SERVER, "HTTP token refreshed successfully");
+    return true;
+}
 
 // WiFi扫描相关定义
 #define MAX_SCAN_RESULTS 20  ///< 最大WiFi扫描结果数量
@@ -86,16 +102,19 @@ esp_err_t save_instrument_config_to_nvs(const instrument_config_t *config) {
     // 1. 保存平台 ID (发送给服务器用)
     err |= nvs_set_str(config_nvs_handle, NVS_KEY_PLATFORM_CODE, config->platform_id);
     
-    // 2. 保存平台名称 (本地展示用) - 新增
+    // 2. 保存平台代码 (HTTP接收用)
+    err |= nvs_set_str(config_nvs_handle, NVS_KEY_PLATFORM_CODE_STR, config->platform_code);
+    
+    // 3. 保存平台名称 (本地展示用) - 新增
     err |= nvs_set_str(config_nvs_handle, NVS_KEY_PLATFORM_NAME, config->platform_name);
     
-    // 3. 保存产品代码
+    // 4. 保存产品代码
     err |= nvs_set_str(config_nvs_handle, NVS_KEY_PRODUCT_CODE, config->product_code);
     
-    // 4. 保存固件版本
+    // 5. 保存固件版本
     err |= nvs_set_str(config_nvs_handle, NVS_KEY_FIRMWARE_VERSION, config->firmware_version);
 
-    // 5. 提交更改
+    // 6. 提交更改
     if (err == ESP_OK) {
         err = nvs_commit(config_nvs_handle);
     }
@@ -105,7 +124,7 @@ esp_err_t save_instrument_config_to_nvs(const instrument_config_t *config) {
     } else {
         ESP_LOGI(TAG_WEB_SERVER, "--- NVS 写入成功 ---");
         ESP_LOGI(TAG_WEB_SERVER, "Stored ID:   %s", config->platform_id);
-        ESP_LOGI(TAG_WEB_SERVER, "Stored Name: %s", config->platform_name);
+        ESP_LOGI(TAG_WEB_SERVER, "Stored Code: %s", config->platform_code);
     }
 
     return err;
@@ -133,7 +152,16 @@ esp_err_t load_instrument_config_from_nvs(instrument_config_t *config) {
         ESP_LOGE(TAG_WEB_SERVER, "Failed to load platform_id (%s)", esp_err_to_name(err)); 
     }
 
-    // 2. 读取 Platform Name (新增：本地显示用)
+    // 2. 读取 Platform Code (HTTP接收用)
+    len = sizeof(config->platform_code);
+    err = nvs_get_str(config_nvs_handle, NVS_KEY_PLATFORM_CODE_STR, config->platform_code, &len);
+    if (err == ESP_ERR_NVS_NOT_FOUND) { 
+        strcpy(config->platform_code, ""); 
+    } else if (err != ESP_OK) { 
+        ESP_LOGE(TAG_WEB_SERVER, "Failed to load platform_code (%s)", esp_err_to_name(err)); 
+    }
+
+    // 3. 读取 Platform Name (新增：本地显示用)
     len = sizeof(config->platform_name);
     err = nvs_get_str(config_nvs_handle, NVS_KEY_PLATFORM_NAME, config->platform_name, &len);
     if (err == ESP_ERR_NVS_NOT_FOUND) { 
@@ -142,7 +170,7 @@ esp_err_t load_instrument_config_from_nvs(instrument_config_t *config) {
         ESP_LOGE(TAG_WEB_SERVER, "Failed to load platform_name (%s)", esp_err_to_name(err)); 
     }
 
-    // 3. 读取 Product Code
+    // 4. 读取 Product Code
     len = sizeof(config->product_code);
     err = nvs_get_str(config_nvs_handle, NVS_KEY_PRODUCT_CODE, config->product_code, &len);
     if (err == ESP_ERR_NVS_NOT_FOUND) { 
@@ -161,8 +189,8 @@ esp_err_t load_instrument_config_from_nvs(instrument_config_t *config) {
     }
     
     // 打印加载结果，方便调试确认 ID 和 Name 是否都读到了
-    ESP_LOGI(TAG_WEB_SERVER, "NVS Loaded: ID=%s, Name=%s, Version=%s", 
-             config->platform_id, config->platform_name, config->firmware_version);
+    ESP_LOGI(TAG_WEB_SERVER, "NVS Loaded: ID=%s, Code=%s, Name=%s, Version=%s", 
+             config->platform_id, config->platform_code, config->platform_name, config->firmware_version);
 
     return ESP_OK; // 即使某个字段没找到，我们也返回 OK 保证程序继续运行
 }
@@ -309,21 +337,81 @@ esp_err_t save_instrument_config_handler(httpd_req_t *req) {
     data_upload_config_t data_config;
 
     // 先加载已有配置，再用新的覆盖，避免未提交的字段被清空
-    load_instrument_config_from_nvs(&instr_config); 
+    load_instrument_config_from_nvs(&instr_config);
     load_data_upload_config_from_nvs(&data_config);
 
     cJSON *id_json = cJSON_GetObjectItemCaseSensitive(root, "platform_id");
-    cJSON *name_json = cJSON_GetObjectItemCaseSensitive(root, "platform_code");
+    if (!id_json) {
+        id_json = cJSON_GetObjectItemCaseSensitive(root, "platformid");
+    }
+
+    cJSON *code_json = cJSON_GetObjectItemCaseSensitive(root, "platform_code");
+    if (!code_json) {
+        code_json = cJSON_GetObjectItemCaseSensitive(root, "platformcode");
+    }
+
+    cJSON *name_json = cJSON_GetObjectItemCaseSensitive(root, "platform_name");
+    if (!name_json) {
+        name_json = cJSON_GetObjectItemCaseSensitive(root, "platformname");
+    }
+
     cJSON *product_code_json = cJSON_GetObjectItemCaseSensitive(root, "product_code");
+    if (!product_code_json) {
+        product_code_json = cJSON_GetObjectItemCaseSensitive(root, "productcode");
+    }
+
     cJSON *firmware_version_json = cJSON_GetObjectItemCaseSensitive(root, "firmware_version");
+    if (!firmware_version_json) {
+        firmware_version_json = cJSON_GetObjectItemCaseSensitive(root, "version");
+    }
+
     cJSON *local_file_json = cJSON_GetObjectItemCaseSensitive(root, "localFile");
     cJSON *upload_server_json = cJSON_GetObjectItemCaseSensitive(root, "uploadServer");
 
     if (cJSON_IsString(id_json) && id_json->valuestring) {
         strncpy(instr_config.platform_id, id_json->valuestring, sizeof(instr_config.platform_id) - 1);
+        instr_config.platform_id[sizeof(instr_config.platform_id) - 1] = '\0';
     }
+
+    if (cJSON_IsString(code_json) && code_json->valuestring) {
+        strncpy(instr_config.platform_code, code_json->valuestring, sizeof(instr_config.platform_code) - 1);
+        instr_config.platform_code[sizeof(instr_config.platform_code) - 1] = '\0';
+    }
+
+    // Note: platform_code should be set to the 'code' field from the platform list JSON,
+    // not the 'name' field. Frontend should parse the platform list response and send
+    // platform_code as the 'code' value (e.g., "hw10" for id=1).
+
+    // 如果有缓存的平台列表JSON，解析以获取正确的code
+    if (platform_list_json) {
+        cJSON *platform_root = cJSON_Parse(platform_list_json);
+        if (platform_root) {
+            cJSON *data = cJSON_GetObjectItem(platform_root, "data");
+            if (cJSON_IsArray(data)) {
+                int array_size = cJSON_GetArraySize(data);
+                for (int i = 0; i < array_size; i++) {
+                    cJSON *item = cJSON_GetArrayItem(data, i);
+                    if (item) {
+                        cJSON *id_item = cJSON_GetObjectItem(item, "id");
+                        if (cJSON_IsNumber(id_item) && id_item->valueint == atoi(instr_config.platform_id)) {
+                            cJSON *code_item = cJSON_GetObjectItem(item, "code");
+                            if (cJSON_IsString(code_item) && code_item->valuestring) {
+                                strncpy(instr_config.platform_code, code_item->valuestring, sizeof(instr_config.platform_code) - 1);
+                                instr_config.platform_code[sizeof(instr_config.platform_code) - 1] = '\0';
+                                ESP_LOGI(TAG_WEB_SERVER, "Parsed platform_code from cached JSON: %s", instr_config.platform_code);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            cJSON_Delete(platform_root);
+        }
+    }
+
     if (cJSON_IsString(name_json) && name_json->valuestring) {
         strncpy(instr_config.platform_name, name_json->valuestring, sizeof(instr_config.platform_name) - 1);
+        instr_config.platform_name[sizeof(instr_config.platform_name) - 1] = '\0';
     }
 
     if (cJSON_IsString(product_code_json) && (product_code_json->valuestring != NULL)) {
@@ -363,8 +451,11 @@ esp_err_t save_instrument_config_handler(httpd_req_t *req) {
     ESP_LOGI(TAG_WEB_SERVER, "==============================================");
     ESP_LOGI(TAG_WEB_SERVER, "✅ 配置已同步:");
     ESP_LOGI(TAG_WEB_SERVER, ">> [发送用] 平台 ID:   %s", instr_config.platform_id);
+    ESP_LOGI(TAG_WEB_SERVER, ">> [HTTP CODE] 平台代码: %s", instr_config.platform_code);
     ESP_LOGI(TAG_WEB_SERVER, ">> [本地用] 平台名称: %s", instr_config.platform_name);
     ESP_LOGI(TAG_WEB_SERVER, ">> 固件版本:          %s", instr_config.firmware_version);
+    ESP_LOGI(TAG_WEB_SERVER, ">> 产品线:          %s", instr_config.product_code);
+
     ESP_LOGI(TAG_WEB_SERVER, "==============================================");
 
     // 3. 返回响应给 Web 前端
@@ -575,7 +666,7 @@ esp_err_t usb_files_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
-    dir = opendir("/disk"); // 假设 /disk 是您的 USB 挂载点
+    dir = opendir("/0:"); // 假设 /disk 是您的 USB 挂载点
     if (dir == NULL)
     {
         ESP_LOGE(TAG_WEB_SERVER, "Failed to open /disk");
@@ -747,8 +838,11 @@ esp_err_t get_wifi_info_handler(httpd_req_t *req)
 esp_err_t get_product_list_handler(httpd_req_t *req) {
     // ⭐ 每次请求都重新获取产品列表，而不是依赖缓存
     if (!http_get_all_products(g_strResp.token)) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "获取产品列表失败");
-        return ESP_FAIL;
+        ESP_LOGW("HTTP_SERVER", "获取产品列表失败，尝试刷新令牌");
+        if (!refresh_http_token() || !http_get_all_products(g_strResp.token)) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "获取产品列表失败");
+            return ESP_FAIL;
+        }
     }
 
     // 检查响应是否为空
@@ -825,15 +919,25 @@ esp_err_t get_platforms_handler(httpd_req_t *req) {
         }
     // 5. 调用外部 API 请求函数 (使用传入的 Token)
     // 假设 g_strResp.token 是你的局部/全局变量
-    if (http_get_product_platforms(g_strResp.token, product_id)) {
-        
-        // 确保 buffer 中有数据
-        if (g_http_resp.buffer && strlen((char*)g_http_resp.buffer) > 0) {
-            httpd_resp_set_type(req, "application/json");
-            // 设置跨域（如果前端调试需要）
-            httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*"); 
-            return httpd_resp_send(req, (char*)g_http_resp.buffer, strlen((char*)g_http_resp.buffer));
+    if (!http_get_product_platforms(g_strResp.token, product_id)) {
+        ESP_LOGW("HTTP_SERVER", "获取平台列表失败，尝试刷新令牌");
+        if (!refresh_http_token() || !http_get_product_platforms(g_strResp.token, product_id)) {
+            ESP_LOGE("HTTP_SERVER", "服务器 API 请求失败");
+            httpd_resp_set_status(req, "502 Bad Gateway");
+            return httpd_resp_sendstr(req, "{\"code\":-1, \"msg\":\"Remote server timeout or error\"}");
         }
+    }
+
+    // 确保 buffer 中有数据
+    if (g_http_resp.buffer && strlen((char*)g_http_resp.buffer) > 0) {
+        // 缓存平台列表JSON用于后续解析
+        free(platform_list_json);
+        platform_list_json = strdup((char*)g_http_resp.buffer);
+        
+        httpd_resp_set_type(req, "application/json");
+        // 设置跨域（如果前端调试需要）
+        httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*"); 
+        return httpd_resp_send(req, (char*)g_http_resp.buffer, g_http_resp.len);
     }
 
     // 6. 走到这里说明后端 API 请求失败或超时
@@ -859,10 +963,15 @@ esp_err_t get_versions_handler(httpd_req_t *req) {
             int64_t platform_id = atoll(id_str);
             
             // 这里调用你的第3个函数，你可以根据需要调整参数
-            if (http_get_platform_versions(g_strResp.token, platform_id)) {
-                httpd_resp_set_type(req, "application/json");
-                return httpd_resp_send(req, (char*)g_http_resp.buffer, strlen((char*)g_http_resp.buffer));
+            if (!http_get_platform_versions(g_strResp.token, platform_id)) {
+                ESP_LOGW("HTTP_SERVER", "获取版本列表失败，尝试刷新令牌");
+                if (!refresh_http_token() || !http_get_platform_versions(g_strResp.token, platform_id)) {
+                    httpd_resp_send_500(req);
+                    return ESP_FAIL;
+                }
             }
+            httpd_resp_set_type(req, "application/json");
+            return httpd_resp_send(req, (char*)g_http_resp.buffer, strlen((char*)g_http_resp.buffer));
         }
     }
     httpd_resp_send_500(req);

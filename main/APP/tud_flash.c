@@ -8,8 +8,15 @@
 
 #include "tud_flash.h"
 #include "file_worker.h"
+#include "esp_vfs_fat.h"
+#include "sdmmc_cmd.h"
+#include "driver/sdmmc_host.h"
+#include "driver/sdspi_host.h"
+#include "driver/spi_common.h"
+#include "spi_sdcard.h"
+#include "spi_sdcard.h"
 static const char *TAG = "usb_msc";
-const char *disk_path = "/disk";                /* 磁盘的路径 */
+const char *disk_path = "/0:";                /* TF卡的路径 (SPI模式) */
 static uint8_t s_pdrv = 0;                      /* 用于识别驱动器的物理驱动器 */
 static int s_disk_block_size = 0;               /* 磁盘块的大小 */
 #define LOGICAL_DISK_NUM        1               /* 磁盘个数 */
@@ -408,14 +415,54 @@ static esp_err_t tud_fat_partitions_init(const char *base_path)
 }
 
 /**
+ * @brief       初始化TF卡的函数
+ * @param       base_path:挂载点路径
+ * @retval      esp_err_t
+ */
+static esp_err_t tud_sdcard_init(const char *base_path)
+{
+    ESP_LOGI(TAG, "Initializing SD card using SPI mode");
+
+    // 检查SPI总线是否已经初始化
+    ESP_LOGI(TAG, "Checking SPI bus status...");
+
+    // 使用项目中已有的SPI SD卡初始化函数
+    esp_err_t ret = sd_spi_init();
+
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize SD card via SPI (%s)", esp_err_to_name(ret));
+
+        // 提供更详细的错误诊断
+        switch(ret) {
+            case ESP_ERR_INVALID_STATE:
+                ESP_LOGE(TAG, "SPI bus not initialized or SD card already mounted");
+                break;
+            case ESP_ERR_NOT_FOUND:
+                ESP_LOGE(TAG, "SD card not detected - check if card is inserted");
+                break;
+            case ESP_ERR_TIMEOUT:
+                ESP_LOGE(TAG, "SD card communication timeout - check wiring");
+                break;
+            default:
+                ESP_LOGE(TAG, "Unknown SD card error");
+                break;
+        }
+        return ret;
+    }
+
+    ESP_LOGI(TAG, "SD card initialized successfully via SPI");
+    return ESP_OK;
+}
+
+/**
  * @brief       FLASH模拟U盘函数初始化
  * @param       无
  * @retval      无
  */
 void tud_usb_flash(void)
 {
-    /* 初始化SPIFFS分区 */
-    ESP_ERROR_CHECK(tud_fat_partitions_init(disk_path));
+    /* 初始化TF卡 */
+    ESP_ERROR_CHECK(tud_sdcard_init(disk_path));
     vTaskDelay(100);
 
     const tinyusb_config_t tusb_cfg = {0};

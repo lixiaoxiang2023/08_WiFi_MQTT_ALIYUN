@@ -249,6 +249,11 @@ static esp_err_t urit_http_event_handler(esp_http_client_event_t *evt)
 
     case HTTP_EVENT_ON_FINISH:
         ESP_LOGI("HTTP", "Finish");
+        // 打印接收到的完整JSON响应
+        if (g_http_resp.buffer && g_http_resp.len > 0) {
+            ESP_LOGI("HTTP", "响应成功:");
+            ESP_LOGI("HTTP", "%.*s", g_http_resp.len, g_http_resp.buffer);
+        }
         break;
 
     case HTTP_EVENT_DISCONNECTED:
@@ -282,15 +287,13 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
     
     // 顶部标题栏
     lcd_fill(0, 0, 320, 45, DARKBLUE);
-    // 【关键】标题栏背景同步
     g_back_color = DARKBLUE; 
-    lcd_show_string(15, 12, 290, 24, 24, "FIRMWARE UPGRADE", WHITE); // 改为白字更美观
+    lcd_show_string(15, 12, 290, 24, 24, "FIRMWARE UPGRADE", WHITE);
 
     // 中央进度卡片
     lcd_fill(15, 60, 305, 175, WHITE); 
     lcd_draw_rectangle(15, 60, 305, 175, GRAYBLUE);
 
-    // 【关键】进入白色卡片区，背景同步为白色
     g_back_color = WHITE; 
 
     const char *short_name = strrchr(filename, '/');
@@ -298,12 +301,13 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
     lcd_show_string(30, 75, 240, 16, 16, "Target File:", BLACK);
     lcd_show_string(30, 95, 240, 16, 16, (char *)short_name, BLUE);
 
-    // 进度条外框
     lcd_draw_rectangle(BAR_X - 1, BAR_Y - 1, BAR_X + BAR_WIDTH + 1, BAR_Y + BAR_HEIGHT + 1, GRAYBLUE);
 
     // 2. 资源准备
+    ESP_LOGI("DW", "Starting download: %s", url); // 打印下载链接
     FILE *f = fopen(filename, "wb");
     if (f == NULL) {
+        ESP_LOGE("DW", "Failed to open file for writing: %s", filename); // 打印文件打开失败
         lcd_show_string(30, 185, 260, 16, 16, "Error: USB Disk Error", RED);
         return ESP_FAIL;
     }
@@ -313,15 +317,21 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
         .method = HTTP_METHOD_GET,
         .timeout_ms = 40000,
         .buffer_size = 8192,
-        .buffer_size_tx = 2048,      // 增加发送缓冲区
+        .buffer_size_tx = 2048,
         .skip_cert_common_name_check = true,
     };
     
     esp_http_client_handle_t client = esp_http_client_init(&config);
-    if (client == NULL) { fclose(f); return ESP_FAIL; }
+    if (client == NULL) { 
+        ESP_LOGE("DW", "HTTP init failed");
+        fclose(f); 
+        return ESP_FAIL; 
+    }
 
+    ESP_LOGI("DW", "Connecting to server...");
     esp_err_t err = esp_http_client_open(client, 0);
     if (err != ESP_OK) {
+        ESP_LOGE("DW", "HTTP open failed: %s", esp_err_to_name(err)); // 打印连接失败原因
         lcd_show_string(30, 185, 260, 16, 16, "Error: Network Failed", RED);
         esp_http_client_cleanup(client);
         fclose(f);
@@ -329,17 +339,30 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
     }
 
     int64_t content_length = esp_http_client_fetch_headers(client);
-    
+    int status_code = esp_http_client_get_status_code(client);
+    ESP_LOGI("DW", "HTTP Status: %d, Content Length: %lld", status_code, content_length); // 打印状态码和长度
+
     // 3. 数据接收与进度刷新
     int total_read_len = 0;
     int last_percentage = -1;
     char *buffer = malloc(4096);
-    if (buffer == NULL) return ESP_ERR_NO_MEM;
+    if (buffer == NULL) {
+        ESP_LOGE("DW", "Buffer malloc failed");
+        esp_http_client_cleanup(client);
+        fclose(f);
+        return ESP_ERR_NO_MEM;
+    }
 
+    ESP_LOGI("DW", "Receiving data...");
     while (true) {
         int read_len = esp_http_client_read(client, buffer, 4096);
         if (read_len > 0) {
-            fwrite(buffer, 1, read_len, f);
+            size_t written = fwrite(buffer, 1, read_len, f);
+            if (written < read_len) {
+                ESP_LOGE("DW", "Write failed: req=%d, actual=%d", read_len, written); // 打印磁盘写入异常
+                err = ESP_FAIL;
+                break;
+            }
             total_read_len += read_len;
 
             if (content_length > 0) {
@@ -347,7 +370,6 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
                 if (percentage != last_percentage) {
                     last_percentage = percentage;
 
-                    // 【关键】确保在白色卡片内刷文字背景为白色
                     g_back_color = WHITE; 
                     char p_str[32];
                     snprintf(p_str, sizeof(p_str), "Downloading: %d%%  ", percentage);
@@ -361,18 +383,25 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
             }
             vTaskDelay(pdMS_TO_TICKS(1)); 
         } else {
-            err = (read_len == 0 && esp_http_client_is_complete_data_received(client)) ? ESP_OK : ESP_FAIL;
+            // 打印读取结束的原因
+            if (read_len == 0 && esp_http_client_is_complete_data_received(client)) {
+                ESP_LOGI("DW", "Download finished successfully. Total: %d bytes", total_read_len);
+                err = ESP_OK;
+            } else {
+                ESP_LOGE("DW", "Read failed or connection closed. read_len=%d", read_len);
+                err = ESP_FAIL;
+            }
             break;
         }
     }
 
     // 4. 结果展示
-    // 结果文字在卡片下方（LGRAY背景区）
     g_back_color = LGRAY; 
     if (err == ESP_OK) {
         lcd_show_string(30, 185, 260, 24, 24, "UPDATE READY!", GREEN);
     } else {
         lcd_show_string(30, 185, 260, 24, 24, "FAILED!", RED);
+        ESP_LOGE("DW", "Download failed finally.");
     }
 
     // 5. 资源回收
@@ -727,10 +756,10 @@ bool http_execute_get_with_body(const char *url, const char *token, const char *
     memset(g_http_resp.buffer, 0, MAX_HTTP_OUTPUT_BUFFER);
     g_http_resp.len = 0;
 
-    // 2. 配置 (注意 Method 依然是 GET)
+    // 2. 配置：该接口实际上发送带 JSON Body 的请求，使用 POST 更符合服务端实现
     esp_http_client_config_t config = {
         .url = url,
-        .method = HTTP_METHOD_GET, 
+        .method = HTTP_METHOD_POST,
         .event_handler = urit_http_event_handler,
         .user_data = &g_http_resp,
         .buffer_size = 2048,
@@ -744,12 +773,15 @@ bool http_execute_get_with_body(const char *url, const char *token, const char *
     snprintf(auth_header, sizeof(auth_header), "Bearer %s", token);
     esp_http_client_set_header(client, "Authorization", auth_header);
     esp_http_client_set_header(client, "Content-Type", "application/json");
+    
+    char len_str[16];
+    sprintf(len_str, "%d", (int)strlen(json_body));
+    esp_http_client_set_header(client, "Content-Length", len_str);
 
-    // 4. 关键点：在 GET 请求中塞入 Body 数据
-    // 虽然函数名叫 set_post_field，但它实际上是设置 HTTP 的 Payload
+    // 4. POST 请求中设置 Body 数据
     esp_http_client_set_post_field(client, json_body, strlen(json_body));
 
-    ESP_LOGI("HTTP", "发送 GET (带 Body) -> %s", url);
+    ESP_LOGI("HTTP", "发送 POST (带 Body) -> %s", url);
     ESP_LOGI("HTTP", "Body 内容: %s", json_body);
 
     // 5. 执行
@@ -1118,8 +1150,8 @@ bool http_get_version(const char *token)
     // 使用从 NVS 加载的值来构建 JSON
     
     //cJSON_AddStringToObject(root, "productcode", PRODUCT_CODE);
-    cJSON_AddStringToObject(root, "platformcode", current_config.platform_name);
     cJSON_AddStringToObject(root, "productcode", current_config.product_code);
+    cJSON_AddStringToObject(root, "platformcode", current_config.platform_code);
    // cJSON_AddStringToObject(root, "platformcode", current_config.platform_code);
     cJSON_AddStringToObject(root, "version", current_config.firmware_version); // 使用 firmware_version 作为 "version" 字段
     post_data = cJSON_PrintUnformatted(root);
@@ -1140,19 +1172,52 @@ bool http_get_version(const char *token)
             ESP_LOGI(OBS_TAG, "Received HTTP Status: %d, Body: %s", response.status_code, response.buffer);
             if (parse_ota_response(response.buffer, &g_download_info)) {
                 if (g_download_info.code == 0) {
-                    ESP_LOGI(OBS_TAG, "OTA response parsed successfully: Version %s", g_download_info.version);
-                    success = true;
+                    if (g_download_info.url[0] == '\0' || g_download_info.file_name[0] == '\0') {
+                        ESP_LOGW(OBS_TAG, "Response from %s contains no download info, falling back to %s", target_url, DOWNLOAD_URL);
+                    } else {
+                        ESP_LOGI(OBS_TAG, "OTA response parsed successfully: Version %s", g_download_info.version);
+                        success = true;
+                    }
                 } else {
                     ESP_LOGW(OBS_TAG, "OTA response business code indicates failure: %d", g_download_info.code);
                 }
             } else {
-                ESP_LOGE(OBS_TAG, "Failed to parse OTA response.");
+                ESP_LOGW(OBS_TAG, "Failed to parse OTA response from %s, falling back to %s", target_url, DOWNLOAD_URL);
             }
         } else {
-            ESP_LOGE(OBS_TAG, "HTTP request failed with status code: %d, body: %s", response.status_code, response.buffer);
+            ESP_LOGW(OBS_TAG, "HTTP request failed with status code: %d, body: %s", response.status_code, response.buffer);
         }
     } else {
         ESP_LOGE(OBS_TAG, "HTTP request (transport layer) failed for get_version.");
+    }
+
+    if (!success) {
+        if (response.buffer) {
+            free(response.buffer);
+            response.buffer = NULL;
+            response.len = 0;
+            response.status_code = 0;
+        }
+
+        if (http_send_request(DOWNLOAD_URL, HTTP_METHOD_POST, token, "application/json", post_data, &response)) {
+            if (response.status_code == 200 && response.len > 0) {
+                ESP_LOGI(OBS_TAG, "Fallback HTTP Status: %d, Body: %s", response.status_code, response.buffer);
+                if (parse_ota_response(response.buffer, &g_download_info)) {
+                    if (g_download_info.code == 0 && g_download_info.url[0] != '\0' && g_download_info.file_name[0] != '\0') {
+                        ESP_LOGI(OBS_TAG, "Fallback OTA response parsed successfully: Version %s", g_download_info.version);
+                        success = true;
+                    } else {
+                        ESP_LOGW(OBS_TAG, "Fallback OTA response missing download info or returned failure code: %d", g_download_info.code);
+                    }
+                } else {
+                    ESP_LOGE(OBS_TAG, "Failed to parse fallback OTA response.");
+                }
+            } else {
+                ESP_LOGE(OBS_TAG, "Fallback HTTP request failed with status code: %d, body: %s", response.status_code, response.buffer);
+            }
+        } else {
+            ESP_LOGE(OBS_TAG, "Fallback HTTP request (transport layer) failed for get_version.");
+        }
     }
 
     // 4. 清理资源
