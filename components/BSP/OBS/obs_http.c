@@ -282,136 +282,143 @@ static void obs_state_reset(void)
 esp_err_t download_to_usb(const char *url, const char *filename) {
     if (url == NULL || filename == NULL) return ESP_ERR_INVALID_ARG;
 
-    // --- 1. UI 风格统一初始化 ---
+    // --- 1. UI 风格初始化 ---
     lcd_clear(LGRAY); 
-    
-    // 顶部标题栏
     lcd_fill(0, 0, 320, 45, DARKBLUE);
     g_back_color = DARKBLUE; 
     lcd_show_string(15, 12, 290, 24, 24, "FIRMWARE UPGRADE", WHITE);
 
-    // 中央进度卡片
     lcd_fill(15, 60, 305, 175, WHITE); 
     lcd_draw_rectangle(15, 60, 305, 175, GRAYBLUE);
-
     g_back_color = WHITE; 
 
     const char *short_name = strrchr(filename, '/');
     short_name = (short_name == NULL) ? filename : (short_name + 1);
     lcd_show_string(30, 75, 240, 16, 16, "Target File:", BLACK);
     lcd_show_string(30, 95, 240, 16, 16, (char *)short_name, BLUE);
-
     lcd_draw_rectangle(BAR_X - 1, BAR_Y - 1, BAR_X + BAR_WIDTH + 1, BAR_Y + BAR_HEIGHT + 1, GRAYBLUE);
 
     // 2. 资源准备
-    ESP_LOGI("DW", "Starting download: %s", url); // 打印下载链接
     FILE *f = fopen(filename, "wb");
     if (f == NULL) {
-        ESP_LOGE("DW", "Failed to open file for writing: %s", filename); // 打印文件打开失败
         lcd_show_string(30, 185, 260, 16, 16, "Error: USB Disk Error", RED);
         return ESP_FAIL;
     }
+
+    // 时间记录：使用 MONOTONIC 时钟保证准确性
+    struct timespec start_time, last_speed_time;
+    clock_gettime(CLOCK_MONOTONIC, &start_time);
+    last_speed_time = start_time;
 
     esp_http_client_config_t config = {
         .url = url,
         .method = HTTP_METHOD_GET,
         .timeout_ms = 40000,
-        .buffer_size = 8192,
-        .buffer_size_tx = 2048,
+        .buffer_size = 16384,
+        .buffer_size_tx = 4096,
         .skip_cert_common_name_check = true,
     };
     
     esp_http_client_handle_t client = esp_http_client_init(&config);
-    if (client == NULL) { 
-        ESP_LOGE("DW", "HTTP init failed");
-        fclose(f); 
-        return ESP_FAIL; 
-    }
+    if (client == NULL) { fclose(f); return ESP_FAIL; }
 
-    ESP_LOGI("DW", "Connecting to server...");
-    esp_err_t err = esp_http_client_open(client, 0);
-    if (err != ESP_OK) {
-        ESP_LOGE("DW", "HTTP open failed: %s", esp_err_to_name(err)); // 打印连接失败原因
+    if (esp_http_client_open(client, 0) != ESP_OK) {
         lcd_show_string(30, 185, 260, 16, 16, "Error: Network Failed", RED);
-        esp_http_client_cleanup(client);
-        fclose(f);
-        return err;
+        esp_http_client_cleanup(client); fclose(f); return ESP_FAIL;
     }
 
     int64_t content_length = esp_http_client_fetch_headers(client);
-    int status_code = esp_http_client_get_status_code(client);
-    ESP_LOGI("DW", "HTTP Status: %d, Content Length: %lld", status_code, content_length); // 打印状态码和长度
-
-    // 3. 数据接收与进度刷新
+    
+    // 3. 数据接收与统计变量
     int total_read_len = 0;
     int last_percentage = -1;
-    char *buffer = malloc(4096);
+    uint32_t last_speed_bytes = 0;
+    esp_err_t err = ESP_OK;
+    
+    #define DL_BUFFER_SIZE (32 * 1024)
+    #define PROGRESS_UPDATE_INTERVAL (256 * 1024) // 每收 256KB 更新一次状态
+
+    char *buffer = malloc(DL_BUFFER_SIZE);
     if (buffer == NULL) {
-        ESP_LOGE("DW", "Buffer malloc failed");
-        esp_http_client_cleanup(client);
-        fclose(f);
-        return ESP_ERR_NO_MEM;
+        esp_http_client_cleanup(client); fclose(f); return ESP_ERR_NO_MEM;
     }
 
     ESP_LOGI("DW", "Receiving data...");
     while (true) {
-        int read_len = esp_http_client_read(client, buffer, 4096);
+        int read_len = esp_http_client_read(client, buffer, DL_BUFFER_SIZE);
         if (read_len > 0) {
-            size_t written = fwrite(buffer, 1, read_len, f);
-            if (written < read_len) {
-                ESP_LOGE("DW", "Write failed: req=%d, actual=%d", read_len, written); // 打印磁盘写入异常
-                err = ESP_FAIL;
-                break;
-            }
+            fwrite(buffer, 1, read_len, f);
             total_read_len += read_len;
 
-            if (content_length > 0) {
-                int percentage = (int)((total_read_len * 100) / content_length);
+            // --- 实时速率与 ETA 计算逻辑 ---
+            if (total_read_len >= last_speed_bytes + PROGRESS_UPDATE_INTERVAL || total_read_len >= content_length) {
+                struct timespec now_time;
+                clock_gettime(CLOCK_MONOTONIC, &now_time);
+                
+                // 计算时间差（秒）
+                double diff_s = (double)(now_time.tv_sec - last_speed_time.tv_sec) + 
+                               (double)(now_time.tv_nsec - last_speed_time.tv_nsec) / 1e9;
+                
+                // 计算瞬时速率 (KB/s)
+                double instant_speed = (diff_s > 0) ? ((total_read_len - last_speed_bytes) / 1024.0) / diff_s : 0;
+                
+                // ⭐ 修复溢出：使用 100LL 强制 64 位计算
+                int percentage = (content_length > 0) ? (int)((total_read_len * 100LL) / content_length) : 0;
+                
+                // 计算 ETA (剩余时间)
+                int eta_min = 0, eta_sec = 0;
+                if (instant_speed > 0 && content_length > 0) {
+                    double remaining_kb = (double)(content_length - total_read_len) / 1024.0;
+                    int remaining_s = (int)(remaining_kb / instant_speed);
+                    eta_min = remaining_s / 60;
+                    eta_sec = remaining_s % 60;
+                }
+
+                // 串口打印监控
+                ESP_LOGI("DW", "[%d%%] Received: %d KB | Speed: %.2f KB/s | ETA: %02d:%02d", 
+                         percentage, total_read_len/1024, instant_speed, eta_min, eta_sec);
+
+                // LCD 刷新（仅在百分比变化时刷新，节省 CPU）
                 if (percentage != last_percentage) {
                     last_percentage = percentage;
-
                     g_back_color = WHITE; 
-                    char p_str[32];
-                    snprintf(p_str, sizeof(p_str), "Downloading: %d%%  ", percentage);
-                    lcd_show_string(30, 120, 200, 16, 16, p_str, DARKBLUE);
+                    char p_str[64];
+                    // 格式：进度% 速率KB/s 剩余时间
+                    snprintf(p_str, sizeof(p_str), "%d%% %.1fKB/s %02d:%02d ", percentage, instant_speed, eta_min, eta_sec);
+                    lcd_show_string(30, 120, 280, 16, 16, p_str, DARKBLUE);
 
                     int current_fill = (BAR_WIDTH * percentage) / 100;
                     if (current_fill > 0) {
                         lcd_fill(BAR_X, BAR_Y, BAR_X + current_fill, BAR_Y + BAR_HEIGHT, GREEN);
                     }
                 }
+                
+                // 更新记录参考点
+                last_speed_bytes = total_read_len;
+                last_speed_time = now_time;
             }
-            vTaskDelay(pdMS_TO_TICKS(1)); 
         } else {
-            // 打印读取结束的原因
-            if (read_len == 0 && esp_http_client_is_complete_data_received(client)) {
-                ESP_LOGI("DW", "Download finished successfully. Total: %d bytes", total_read_len);
-                err = ESP_OK;
-            } else {
-                ESP_LOGE("DW", "Read failed or connection closed. read_len=%d", read_len);
-                err = ESP_FAIL;
-            }
+            // read_len == 0 且数据收全则视为成功
+            err = (read_len == 0 && esp_http_client_is_complete_data_received(client)) ? ESP_OK : ESP_FAIL;
             break;
         }
     }
 
-    // 4. 结果展示
-    g_back_color = LGRAY; 
-    if (err == ESP_OK) {
-        lcd_show_string(30, 185, 260, 24, 24, "UPDATE READY!", GREEN);
-    } else {
-        lcd_show_string(30, 185, 260, 24, 24, "FAILED!", RED);
-        ESP_LOGE("DW", "Download failed finally.");
-    }
+    // 4. 统计与清理
+    struct timespec final_time;
+    clock_gettime(CLOCK_MONOTONIC, &final_time);
+    double total_s = (double)(final_time.tv_sec - start_time.tv_sec) + (double)(final_time.tv_nsec - start_time.tv_nsec) / 1e9;
+    
+    ESP_LOGI("DW", "Final: %d bytes in %.2f s (Avg: %.2f KB/s)", total_read_len, total_s, (total_read_len/1024.0)/total_s);
 
-    // 5. 资源回收
+    g_back_color = LGRAY; 
+    lcd_show_string(30, 185, 260, 24, 24, (err == ESP_OK) ? "UPDATE READY!" : "FAILED!", (err == ESP_OK) ? GREEN : RED);
+
     free(buffer);
     fclose(f);
     esp_http_client_cleanup(client);
-
     return err;
 }
-
 /* ===================== 下载 ===================== */
 esp_err_t obs_http_download(const char *url, const char *local_path)
 {
@@ -1240,7 +1247,7 @@ bool verify_file_md5(const char *path, const char *expected_md5) {
 
     FILE *f = fopen(path, "rb");
     if (f == NULL) {
-        ESP_LOGE("MD5", "无法打开文件进行校验: %s", path);
+        ESP_LOGE("MD5", "Failed to open: %s", path);
         return false;
     }
 
@@ -1248,39 +1255,46 @@ bool verify_file_md5(const char *path, const char *expected_md5) {
     mbedtls_md5_init(&ctx);
     mbedtls_md5_starts(&ctx);
 
-    uint8_t *buffer = malloc(1024); // 分配 1KB 缓存进行分段读取
+    // ⭐ 优化1：加大缓冲区提升 700M 文件的读取效率 (从 1K 改为 32K)
+    const size_t buf_size = 32 * 1024; 
+    uint8_t *buffer = malloc(buf_size);
     if (!buffer) {
+        ESP_LOGE("MD5", "Malloc failed");
         fclose(f);
+        mbedtls_md5_free(&ctx);
         return false;
     }
 
     size_t read_len;
-    while ((read_len = fread(buffer, 1, 1024, f)) > 0) {
+    ESP_LOGI("MD5", "Verifying file, please wait...");
+    while ((read_len = fread(buffer, 1, buf_size, f)) > 0) {
         mbedtls_md5_update(&ctx, buffer, read_len);
+    }
+
+    // ⭐ 优化2：检查是否因读取错误而停止
+    if (ferror(f)) {
+        ESP_LOGE("MD5", "File read error occurred!");
     }
 
     uint8_t digest[16];
     mbedtls_md5_finish(&ctx, digest);
     mbedtls_md5_free(&ctx);
-    
     free(buffer);
     fclose(f);
 
-    // 将 16 字节的二进制结果转为 32 位十六进制字符串
+    // 将二进制转为字符串
     char actual_md5[33];
     for (int i = 0; i < 16; i++) {
-        sprintf(&actual_md5[i * 2], "%02x", digest[i]);
+        snprintf(&actual_md5[i * 2], 3, "%02x", digest[i]);
     }
+    actual_md5[32] = '\0'; // 显式闭合
 
-    // 忽略大小写进行比对
+    // 比对
     if (strcasecmp(actual_md5, expected_md5) == 0) {
-        ESP_LOGI("MD5", "✅ 校验通过! 文件完整性良好。");
-        ESP_LOGI("MD5", "MD5: %s", actual_md5);
+        ESP_LOGI("MD5", "✅ PASS: %s", actual_md5);
         return true;
     } else {
-        ESP_LOGE("MD5", "❌ 校验失败!");
-        ESP_LOGE("MD5", "期望值: %s", expected_md5);
-        ESP_LOGE("MD5", "实际值: %s", actual_md5);
+        ESP_LOGE("MD5", "❌ FAIL! Expected: %s, Actual: %s", expected_md5, actual_md5);
         return false;
     }
 }
@@ -1304,3 +1318,4 @@ obs_http_upload(upload_url, "/spiffs/log.txt");
 obs_http_list_bucket(list_url, "/spiffs/list.xml");
 
 */
+

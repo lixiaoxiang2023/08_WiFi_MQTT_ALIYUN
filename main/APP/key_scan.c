@@ -72,8 +72,31 @@ void lcd_show_homepage(const char *ssid, const char *ip_str, bool is_config_mode
     snprintf(ver_buf, sizeof(ver_buf), "Ver: %s | HW: V1.0", FW_VERSION);
     lcd_show_string(30, 210, 260, 12, 12, ver_buf, GRAY);
 }
+/**
+ * @brief 显示初始化进度界面
+ * @param step_msg 当前步骤描述
+ * @param color 描述文字的颜色
+ */
+void lcd_show_init_screen(const char *step_msg, uint16_t text_color)
+{
+    // --- 1. 顶部深蓝区 ---
+    lcd_fill(0, 0, 320, 45, DARKBLUE);
+    g_back_color = DARKBLUE; // 必须同步！否则标题文字周围会有乱码补丁
+    lcd_show_string(15, 12, 290, 24, 24, "SYSTEM INITIALIZE", WHITE);
 
-static wifi_user_mode_t g_wifi_user_mode = WIFI_MODE_STA_ONLY;
+    // --- 2. 中央白色卡片区 ---
+    lcd_fill(15, 60, 305, 175, WHITE); 
+    lcd_draw_rectangle(15, 60, 305, 175, GRAYBLUE);
+    
+    // 【修正点】在这里必须切换为 WHITE
+    g_back_color = WHITE; 
+    
+    // 在白色背景上写字
+    // 如果 step_msg 包含中文且字库不支持，这里会显示一串方块或乱码
+    lcd_show_string(30, 120, 260, 16, 16, (char*)step_msg, text_color);
+}
+
+static wifi_user_mode_t g_wifi_user_mode = WIFI_MODE_WEB_CONFIG;
 
 void wifi_switch_mode(void)
 {
@@ -342,7 +365,13 @@ void key_scan_task(void *arg)
     wifi_config_t conf;
     esp_wifi_get_config(WIFI_IF_STA, &conf);
 
-    lcd_show_homepage((char *)conf.sta.ssid, "Waiting for IP...", false);
+   // lcd_show_homepage((char *)conf.sta.ssid, "Waiting for IP...", false);
+    while (g_sys_status != SYS_READY) 
+    {
+        //ESP_LOGW("UI", "System busy, key ignored.");
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    wifi_switch_mode();
 
     while(1)
     {
@@ -374,12 +403,16 @@ void key_scan_task(void *arg)
 
                 // If the OTA task is not already running, create it
                 if (xOtaTaskHandle == NULL) {
-                    xTaskCreate(ota_update_task,     // Task function
-                                "OTA_Update_Task",   // Name of task
-                                4096,                // Stack size (bytes) - adjust as needed
-                                NULL,                // Parameter to pass to the task
-                                5,                   // Priority (lower than key_scan_task if key_scan is critical)
-                                &xOtaTaskHandle);    // Task handle to keep track
+                    xTaskCreatePinnedToCore(
+                        ota_update_task,        // 任务函数
+                        "OTA_Update_Task",      // 任务名称
+                        8192,                   // 栈大小：建议从 4096 增加到 8192
+                                                // (OTA 和 HTTP 逻辑较深，大一点更安全)
+                        NULL,                   // 传递给任务的参数
+                        5,                      // 优先级：与 key_scan 同级或略低
+                        &xOtaTaskHandle,        // 任务句柄
+                        0                       // 【关键】指定运行在核心 1
+                    );
                     printf("Starting OTA update in background task.\n");
                 } else {
                     printf("OTA update is already running. Please wait.\n");

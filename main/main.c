@@ -100,15 +100,15 @@ void app_main(void)
 
     /* ================= 本地任务 ================= */
     //xTaskCreate(mem_monitor_task, "mem_mon", 4096, NULL, 5, NULL);
-    xTaskCreatePinnedToCore(
-        file_task_worker,
-        "file_task_worker",
-        6* 1024,
-        NULL,
-        5,
-        NULL,
-        1
-    );
+    // xTaskCreatePinnedToCore(
+    //     file_task_worker,
+    //     "file_task_worker",
+    //     6* 1024,
+    //     NULL,
+    //     5,
+    //     NULL,
+    //     1
+    // );
 
     xTaskCreatePinnedToCore(
         usb_copy_task,
@@ -117,10 +117,19 @@ void app_main(void)
         NULL,
         4,
         NULL,
-        0
+        1
     );
-    xTaskCreate(key_scan_task, "key_scan_task", 4* 1024, NULL, 5, NULL);
-
+    //xTaskCreate(key_scan_task, "key_scan_task", 4* 1024, NULL, 5, NULL);
+    // 将 key_scan_task 也固定到核心 1
+    xTaskCreatePinnedToCore(
+        key_scan_task, 
+        "key_scan_task", 
+        4096,           // 4KB 栈空间
+        NULL, 
+        5,              // 优先级保持为 5（高于下载任务的 4）
+        NULL, 
+        0               // 固定到 Core 1
+    );
     /* ================= WiFi后台任务 ================= */
     xTaskCreate(
         wifi_background_task,

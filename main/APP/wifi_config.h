@@ -25,6 +25,13 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "esp_http_server.h"
+typedef enum {
+    SYS_INIT = 0,   // 初始化中（禁止操作）
+    SYS_WIFI_WAIT,  // 等待配网
+    SYS_SYNCING,    // 同步云端数据中
+    SYS_READY,      // 就绪（可以开始操作）
+    SYS_ERROR       // 初始化失败
+} SystemStatus_t;
 
 typedef struct {
     char local_file[64];
@@ -38,6 +45,7 @@ typedef struct {
 extern EventGroupHandle_t s_wifi_event_group;
 extern data_config_t g_data_config;
 
+extern volatile SystemStatus_t g_sys_status;
 /* 获取内部 EventGroup（高级用法） */
 EventGroupHandle_t wifi_config_get_event_group(void);
 /* 声明函数 */

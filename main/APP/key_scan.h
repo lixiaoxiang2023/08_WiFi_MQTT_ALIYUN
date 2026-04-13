@@ -12,5 +12,6 @@
 void key_scan_task(void *arg);
 void ota_daemon_task(void *pvParameter);
 void lcd_show_homepage(const char *ssid, const char *ip_str, bool is_config_mode);
+void lcd_show_init_screen(const char *step_msg, uint16_t color);
 extern esp_mqtt_client_handle_t client;
 #endif

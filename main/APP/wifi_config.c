@@ -409,56 +409,69 @@ void initialize_sntp_v5(void) {
         print_current_time();
     }
 }
-
+volatile SystemStatus_t g_sys_status;
 
 void wifi_background_task(void *pv)
 {
+    // 初始状态：禁止操作
+    g_sys_status = SYS_INIT;
     ESP_LOGI("WIFI", "WiFi background task started");
 
-    // 1. 强制关闭节能模式，确保配网和后续数据传输的稳定性
+    // --- 步骤 1: 基础硬件 ---
+    lcd_show_init_screen("WIFI Power Init...", DARKBLUE);
     esp_wifi_set_ps(WIFI_PS_NONE);
-    ESP_LOGW("WIFI", "WiFi Power Save Disabled for stability");
+    vTaskDelay(pdMS_TO_TICKS(500));
 
-    // 2. 【核心】启动智能配网模式
-    // 注意：该函数内部通常会配置 WiFi 为 STA 模式并开启 SmartConfig 监听
+    // --- 步骤 2: WiFi 配网 ---
+    g_sys_status = SYS_WIFI_WAIT;
+    lcd_show_init_screen("Waiting for WiFi...", LIGHTBLUE);
     wifi_smartconfig_sta();
-
-    // 3. 等待 WiFi 连接成功
-    // 这里的 wait 函数应该在监听到 SmartConfig 成功获取信息并连接后才会返回 ESP_OK
-    ESP_LOGI("WIFI", "Waiting for WiFi connection (SmartConfig/WebProv)...");
     wifi_config_wait_connected();
+    
+    lcd_show_init_screen("WiFi Connected!", GREEN);
+    vTaskDelay(pdMS_TO_TICKS(500));
 
-    // 4. 获取网络时间 (SNTP)
-    // 很多云端登录需要校验时间戳，建议在登录前同步时间
+    // --- 步骤 3: SNTP 时间同步 ---
+    lcd_show_init_screen("Syncing Network Time...", DARKBLUE);
     initialize_sntp_v5();
 
-    // 5. 登录并获取服务器文件列表
+    // --- 步骤 4: 云端登录与数据同步 ---
+    g_sys_status = SYS_SYNCING;
     int retry_count = 3;
     bool sync_success = false;
 
     while (retry_count-- > 0 && !sync_success) {
-        ESP_LOGI("WIFI", "Connecting to cloud... (Attempts left: %d)", retry_count + 1);
+        char msg[32];
+        snprintf(msg, sizeof(msg), "Cloud Sync (%d)...", retry_count + 1);
+        lcd_show_init_screen(msg, BLUE);
 
         if (http_login(&g_strResp)) {
-            // 登录成功，抓取产品列表存入 g_http_resp.buffer
             if (http_get_all_products(g_strResp.token)) {
-                ESP_LOGI("WIFI", "Product list synced and cached.");
                 sync_success = true;
-            } else {
-                ESP_LOGE("WIFI", "Failed to fetch product list.");
             }
-        }
-        else {
-            ESP_LOGE("WIFI", "Cloud login failed.");
         }
 
         if (!sync_success && retry_count > 0) {
-            vTaskDelay(pdMS_TO_TICKS(5000)); // 失败后等 5 秒再试
+            vTaskDelay(pdMS_TO_TICKS(3000)); 
         }
     }
 
-    ESP_LOGI("WIFI", "Background task finished. Status: %s", sync_success ? "DONE" : "FAILED");
-    
-    // 任务完成后自毁，释放栈空间
+    // --- 步骤 5: 完成或失败 ---
+    if (sync_success) {
+        lcd_show_init_screen("SYSTEM READY", GREEN);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        
+        // ⭐ 彻底完成，解锁操作
+        g_sys_status = SYS_READY; 
+        
+        // 进入真正的系统主页
+        // 这里假设已经有逻辑能获取到最新的 ssid 和 ip
+        // lcd_show_homepage(current_ssid, current_ip, false);
+    } else {
+        g_sys_status = SYS_ERROR;
+        lcd_show_init_screen("INIT FAILED!", RED);
+        // 如果失败，可以考虑在这里停住或者跳转到错误处理界面
+    }
+    ESP_LOGI("WIFI", "Background task finished.");
     vTaskDelete(NULL); 
 }

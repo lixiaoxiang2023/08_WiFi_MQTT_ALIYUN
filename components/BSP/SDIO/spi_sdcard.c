@@ -66,7 +66,7 @@ esp_err_t sd_spi_init(void)
     sdmmc_host_t host = SDSPI_HOST_DEFAULT();
     host.flags = SDMMC_HOST_FLAG_SPI | SDMMC_HOST_FLAG_DEINIT_ARG;  /* 定义主机属性的标志：SPI协议且可调用deinit函数 */
     host.slot = SPI2_HOST;                                          /* 使用SPI2端口 */
-    host.max_freq_khz = SDMMC_FREQ_DEFAULT;                         /* 主机支持的最大频率：20000 */
+    host.max_freq_khz = 20000;                                      /* 主机支持的最大频率：20000 */
     host.io_voltage = 3.3f;                                         /* 控制器使用的I/O电压 */
     host.init = &sdspi_host_init;                                   /* 用于初始化驱动程序的主机函数 */
     host.set_bus_width = NULL;                                      /* 设置总线宽度的主机功能 */
