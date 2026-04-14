@@ -194,13 +194,17 @@ static void ota_update_task(void *arg)
                 // ⭐ 3. 进行 MD5 完整性校验
                 if (verify_file_md5(g_strWriteLocalFileName, g_download_info.md5)) {
                     ESP_LOGI("MAIN", "✅ MD5 校验通过，固件合法！");
-                    
+                    lcd_fill(20, 185, 300, 235, WHITE); // 清理
+                    lcd_show_string(30, 190, 260, 16, 16, "MD5 CHECK OK!", GREEN);
+                    lcd_show_string(30, 210, 260, 12, 12, "Firmware is valid.", GRAY);
                     // --- 此处可以安全地执行后续 OTA 处理 (如从 U 盘刷机) ---
                     // execute_ota_update_from_usb(g_strWriteLocalFileName);
                     
                 } else {
                     ESP_LOGE("MAIN", "❌ MD5 校验失败，文件可能在传输中损坏！");
-                    
+                    lcd_fill(20, 185, 300, 235, WHITE); // 清理
+                    lcd_show_string(30, 190, 260, 16, 16, "MD5 CHECK FAILED!", RED);
+                    lcd_show_string(30, 210, 260, 12, 12, "File corrupted.", RED);
                     // 校验失败，建议删除损坏的文件，避免占用空间或被误用
                     unlink(g_strWriteLocalFileName); 
                 }

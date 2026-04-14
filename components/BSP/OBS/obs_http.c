@@ -273,39 +273,40 @@ static void obs_state_reset(void)
 }
 /* ===================== 下载 ===================== */
 
-/**
- * @brief 下载文件并保存到U盘，同时在LCD显示进度
- * @param url      下载链接
- * @param filename 本地路径 (如 "/usb/update.bin")
- * @return esp_err_t 
- */
+#include <sys/stat.h> // 必须引入此头文件获取文件信息
 esp_err_t download_to_usb(const char *url, const char *filename) {
     if (url == NULL || filename == NULL) return ESP_ERR_INVALID_ARG;
 
-    // --- 1. UI 风格初始化 ---
+    // --- 1. 获取本地已下载的大小 ---
+    long local_file_size = 0;
+    struct stat st;
+    if (stat(filename, &st) == 0) {
+        local_file_size = st.st_size;
+        ESP_LOGI("DW", "Detect local file: %ld bytes", local_file_size);
+    }
+
+    // --- 2. UI 初始化 ---
     lcd_clear(LGRAY); 
     lcd_fill(0, 0, 320, 45, DARKBLUE);
     g_back_color = DARKBLUE; 
     lcd_show_string(15, 12, 290, 24, 24, "FIRMWARE UPGRADE", WHITE);
-
     lcd_fill(15, 60, 305, 175, WHITE); 
     lcd_draw_rectangle(15, 60, 305, 175, GRAYBLUE);
     g_back_color = WHITE; 
-
     const char *short_name = strrchr(filename, '/');
     short_name = (short_name == NULL) ? filename : (short_name + 1);
     lcd_show_string(30, 75, 240, 16, 16, "Target File:", BLACK);
     lcd_show_string(30, 95, 240, 16, 16, (char *)short_name, BLUE);
     lcd_draw_rectangle(BAR_X - 1, BAR_Y - 1, BAR_X + BAR_WIDTH + 1, BAR_Y + BAR_HEIGHT + 1, GRAYBLUE);
 
-    // 2. 资源准备
-    FILE *f = fopen(filename, "wb");
+    // --- 3. 打开文件 ---
+    FILE *f = fopen(filename, "ab");
     if (f == NULL) {
         lcd_show_string(30, 185, 260, 16, 16, "Error: USB Disk Error", RED);
         return ESP_FAIL;
     }
 
-    // 时间记录：使用 MONOTONIC 时钟保证准确性
+    // 时间记录
     struct timespec start_time, last_speed_time;
     clock_gettime(CLOCK_MONOTONIC, &start_time);
     last_speed_time = start_time;
@@ -314,110 +315,129 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
         .url = url,
         .method = HTTP_METHOD_GET,
         .timeout_ms = 40000,
-        .buffer_size = 16384,
+        .buffer_size = 16384,     
         .buffer_size_tx = 4096,
         .skip_cert_common_name_check = true,
     };
-    
     esp_http_client_handle_t client = esp_http_client_init(&config);
     if (client == NULL) { fclose(f); return ESP_FAIL; }
+
+    if (local_file_size > 0) {
+        char range_header[64];
+        snprintf(range_header, sizeof(range_header), "bytes=%ld-", local_file_size);
+        esp_http_client_set_header(client, "Range", range_header);
+    }
 
     if (esp_http_client_open(client, 0) != ESP_OK) {
         lcd_show_string(30, 185, 260, 16, 16, "Error: Network Failed", RED);
         esp_http_client_cleanup(client); fclose(f); return ESP_FAIL;
     }
 
-    int64_t content_length = esp_http_client_fetch_headers(client);
-    
-    // 3. 数据接收与统计变量
-    int total_read_len = 0;
-    int last_percentage = -1;
-    uint32_t last_speed_bytes = 0;
+    int64_t remaining_length = esp_http_client_fetch_headers(client);
+    int status_code = esp_http_client_get_status_code(client);    
     esp_err_t err = ESP_OK;
-    
-    #define DL_BUFFER_SIZE (32 * 1024)
-    #define PROGRESS_UPDATE_INTERVAL (256 * 1024) // 每收 256KB 更新一次状态
 
-    char *buffer = malloc(DL_BUFFER_SIZE);
-    if (buffer == NULL) {
-        esp_http_client_cleanup(client); fclose(f); return ESP_ERR_NO_MEM;
+    #define DL_BUFFER_SIZE (32 * 1024)
+    #define PROGRESS_UPDATE_INTERVAL (256 * 1024) 
+
+    // --- 5. 核心逻辑处理 ---
+    int64_t total_content_length = 0;
+    bool skip_download = false;
+
+    if (status_code == 206) {
+        total_content_length = remaining_length + local_file_size;
+    } else if (status_code == 416) {
+        ESP_LOGI("DW", "HTTP 416: File already complete.");
+        total_content_length = local_file_size;
+        skip_download = true;
+    } else if (status_code == 200) {
+        if (local_file_size > 0) {
+            ESP_LOGW("DW", "Server returned 200, restarting...");
+            fclose(f);
+            f = fopen(filename, "wb");
+            local_file_size = 0;
+        }
+        total_content_length = remaining_length;
+    } else {
+        ESP_LOGE("DW", "HTTP Error: %d", status_code);
+        skip_download = true; 
     }
 
-    ESP_LOGI("DW", "Receiving data...");
-    while (true) {
-        int read_len = esp_http_client_read(client, buffer, DL_BUFFER_SIZE);
-        if (read_len > 0) {
-            fwrite(buffer, 1, read_len, f);
-            total_read_len += read_len;
+    // --- 6. 数据接收 ---
+    int total_read_len = local_file_size;
+    if (!skip_download) {
+        int last_percentage = -1;
+        uint32_t last_speed_bytes = local_file_size;
+        
+        char *buffer = malloc(DL_BUFFER_SIZE);
+        if (buffer) {
+            while (true) {
+                int read_len = esp_http_client_read(client, buffer, DL_BUFFER_SIZE);
+                if (read_len > 0) {
+                    fwrite(buffer, 1, read_len, f);
+                    total_read_len += read_len;
 
-            // --- 实时速率与 ETA 计算逻辑 ---
-            if (total_read_len >= last_speed_bytes + PROGRESS_UPDATE_INTERVAL || total_read_len >= content_length) {
-                struct timespec now_time;
-                clock_gettime(CLOCK_MONOTONIC, &now_time);
-                
-                // 计算时间差（秒）
-                double diff_s = (double)(now_time.tv_sec - last_speed_time.tv_sec) + 
-                               (double)(now_time.tv_nsec - last_speed_time.tv_nsec) / 1e9;
-                
-                // 计算瞬时速率 (KB/s)
-                double instant_speed = (diff_s > 0) ? ((total_read_len - last_speed_bytes) / 1024.0) / diff_s : 0;
-                
-                // ⭐ 修复溢出：使用 100LL 强制 64 位计算
-                int percentage = (content_length > 0) ? (int)((total_read_len * 100LL) / content_length) : 0;
-                
-                // 计算 ETA (剩余时间)
-                int eta_min = 0, eta_sec = 0;
-                if (instant_speed > 0 && content_length > 0) {
-                    double remaining_kb = (double)(content_length - total_read_len) / 1024.0;
-                    int remaining_s = (int)(remaining_kb / instant_speed);
-                    eta_min = remaining_s / 60;
-                    eta_sec = remaining_s % 60;
-                }
+                    if (total_read_len >= last_speed_bytes + (PROGRESS_UPDATE_INTERVAL) || total_read_len >= total_content_length) {
+                        struct timespec now_time;
+                        clock_gettime(CLOCK_MONOTONIC, &now_time);
+                        double diff_s = (double)(now_time.tv_sec - last_speed_time.tv_sec) + 
+                                       (double)(now_time.tv_nsec - last_speed_time.tv_nsec) / 1e9;
+                        double instant_speed = (diff_s > 0) ? ((total_read_len - last_speed_bytes) / 1024.0) / diff_s : 0;
+                        
+                        // ⭐ 修复：使用 total_content_length 计算全量百分比
+                        int percentage = (total_content_length > 0) ? (int)((total_read_len * 100LL) / total_content_length) : 0;
+                        
+                        // 计算 ETA
+                        int eta_min = 0, eta_sec = 0;
+                        if (instant_speed > 0 && total_content_length > total_read_len) {
+                            double remaining_kb = (double)(total_content_length - total_read_len) / 1024.0;
+                            int remaining_s = (int)(remaining_kb / instant_speed);
+                            eta_min = remaining_s / 60;
+                            eta_sec = remaining_s % 60;
+                        }
 
-                // 串口打印监控
-                ESP_LOGI("DW", "[%d%%] Received: %d KB | Speed: %.2f KB/s | ETA: %02d:%02d", 
-                         percentage, total_read_len/1024, instant_speed, eta_min, eta_sec);
+                        ESP_LOGI("DW", "[%d%%] Received: %d KB | Speed: %.2f KB/s | ETA: %02d:%02d", 
+                                 percentage, total_read_len/1024, instant_speed, eta_min, eta_sec);
 
-                // LCD 刷新（仅在百分比变化时刷新，节省 CPU）
-                if (percentage != last_percentage) {
-                    last_percentage = percentage;
-                    g_back_color = WHITE; 
-                    char p_str[64];
-                    // 格式：进度% 速率KB/s 剩余时间
-                    snprintf(p_str, sizeof(p_str), "%d%% %.1fKB/s %02d:%02d ", percentage, instant_speed, eta_min, eta_sec);
-                    lcd_show_string(30, 120, 280, 16, 16, p_str, DARKBLUE);
-
-                    int current_fill = (BAR_WIDTH * percentage) / 100;
-                    if (current_fill > 0) {
-                        lcd_fill(BAR_X, BAR_Y, BAR_X + current_fill, BAR_Y + BAR_HEIGHT, GREEN);
+                        if (percentage != last_percentage) {
+                            last_percentage = percentage;
+                            g_back_color = WHITE; 
+                            char p_str[64];
+                            snprintf(p_str, sizeof(p_str), "%d%% %.1fKB/s %02d:%02d ", percentage, instant_speed, eta_min, eta_sec);
+                            lcd_show_string(30, 120, 280, 16, 16, p_str, DARKBLUE);
+                            int current_fill = (BAR_WIDTH * percentage) / 100;
+                            if (current_fill > 0) {
+                                lcd_fill(BAR_X, BAR_Y, BAR_X + current_fill, BAR_Y + BAR_HEIGHT, GREEN);
+                            }
+                        }
+                        last_speed_bytes = total_read_len;
+                        last_speed_time = now_time;
                     }
+                } else {
+                    err = (read_len == 0 && esp_http_client_is_complete_data_received(client)) ? ESP_OK : ESP_FAIL;
+                    break;
                 }
-                
-                // 更新记录参考点
-                last_speed_bytes = total_read_len;
-                last_speed_time = now_time;
             }
-        } else {
-            // read_len == 0 且数据收全则视为成功
-            err = (read_len == 0 && esp_http_client_is_complete_data_received(client)) ? ESP_OK : ESP_FAIL;
-            break;
+            free(buffer);
         }
     }
 
-    // 4. 统计与清理
-    struct timespec final_time;
-    clock_gettime(CLOCK_MONOTONIC, &final_time);
-    double total_s = (double)(final_time.tv_sec - start_time.tv_sec) + (double)(final_time.tv_nsec - start_time.tv_nsec) / 1e9;
+    // --- 7. 清理 ---
+    bool is_done = (status_code == 416) || (err == ESP_OK && esp_http_client_is_complete_data_received(client));
     
-    ESP_LOGI("DW", "Final: %d bytes in %.2f s (Avg: %.2f KB/s)", total_read_len, total_s, (total_read_len/1024.0)/total_s);
-
-    g_back_color = LGRAY; 
-    lcd_show_string(30, 185, 260, 24, 24, (err == ESP_OK) ? "UPDATE READY!" : "FAILED!", (err == ESP_OK) ? GREEN : RED);
-
-    free(buffer);
+    fflush(f);
+    fsync(fileno(f)); 
     fclose(f);
     esp_http_client_cleanup(client);
-    return err;
+
+    g_back_color = LGRAY;
+    if (is_done) {
+        lcd_show_string(30, 185, 260, 24, 24, "DOWNLOAD DONE!", GREEN);
+        return ESP_OK;
+    } else {
+        lcd_show_string(30, 185, 260, 24, 24, "DOWNLOAD ERROR", RED);
+        return ESP_FAIL;
+    }
 }
 /* ===================== 下载 ===================== */
 esp_err_t obs_http_download(const char *url, const char *local_path)
