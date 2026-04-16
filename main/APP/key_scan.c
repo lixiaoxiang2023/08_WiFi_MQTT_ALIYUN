@@ -8,6 +8,8 @@
 #include "wifi_config.h"
 #include "huawei_ota.h"
 #include "web_server_handlers.h"
+#include "ui_lvgl.h"
+#include "lvgl_manager.h"
 
 
 
@@ -19,141 +21,39 @@ typedef enum {
     WIFI_MODE_STA_ONLY      // 纯 STA
 } wifi_user_mode_t;
 
-/**
- * @brief  系统主页 (彻底修复补丁与对齐版)
- */
-void lcd_show_homepage(const char *ssid, const char *ip_str, bool is_config_mode)
-{
-    // --- 第一阶段：背景预设 ---
-    lcd_clear(LGRAY);
-
-    // --- 第二阶段：顶部标题区 (解决照片中最明显的白色补丁) ---
-    lcd_fill(0, 0, 320, 45, DARKBLUE);
-    
-    // 【核心修正】在显示标题文字前，强制同步驱动背景色为深蓝色
-    g_back_color = DARKBLUE; 
-    // 建议标题使用白色，在深蓝底上最清晰
-    lcd_show_string(15, 12, 290, 24, 24, "SYSTEM MONITOR", WHITE);
-
-    // --- 第三阶段：中央信息卡片区 ---
-    // 为了美观和避开补丁，我们手动画一个纯白卡片
-    lcd_fill(15, 60, 305, 165, WHITE); 
-    lcd_draw_rectangle(15, 60, 305, 165, GRAYBLUE);
-
-    // 【核心修正】在进入卡片区写字前，强制同步驱动背景色为白色
-    g_back_color = WHITE; 
-
-    // 状态显示
-    lcd_show_string(30, 75, 80, 16, 16, "Status:", BLACK);
-    if (is_config_mode) {
-        lcd_show_string(110, 75, 180, 16, 16, "STA+AP Config", RED);
-    } else {
-        lcd_show_string(110, 75, 180, 16, 16, "STA Only     ", GREEN); // 加空格覆盖旧字符
-    }
-
-    // WiFi SSID
-    lcd_show_string(30, 105, 80, 16, 16, "SSID  :", BLACK);
-    char *display_ssid = (ssid && strlen(ssid) > 0) ? (char *)ssid : "Searching... ";
-    lcd_show_string(110, 105, 180, 16, 16, display_ssid, DARKBLUE);
-
-    // IP 地址
-    lcd_show_string(30, 135, 80, 16, 16, "IP    :", BLACK);
-    char *display_ip = (ip_str && strlen(ip_str) > 0) ? (char *)ip_str : "Waiting for IP...";
-    lcd_show_string(110, 135, 180, 16, 16, display_ip, BLUE);
-
-    // --- 第四阶段：底部页脚区 ---
-    // 画横线装饰
-    lcd_draw_hline(20, 195, 280, GRAYBLUE);
-    
-    // 【核心修正】页脚在灰色背景上，同步背景色为灰色
-    g_back_color = LGRAY; 
-    
-    char ver_buf[32];
-    snprintf(ver_buf, sizeof(ver_buf), "Ver: %s | HW: V1.0", FW_VERSION);
-    lcd_show_string(30, 210, 260, 12, 12, ver_buf, GRAY);
-}
-/**
- * @brief 显示初始化进度界面
- * @param step_msg 当前步骤描述
- * @param color 描述文字的颜色
- */
-void lcd_show_init_screen(const char *step_msg, uint16_t text_color)
-{
-    // --- 1. 顶部深蓝区 ---
-    lcd_fill(0, 0, 320, 45, DARKBLUE);
-    g_back_color = DARKBLUE; // 必须同步！否则标题文字周围会有乱码补丁
-    lcd_show_string(15, 12, 290, 24, 24, "SYSTEM INITIALIZE", WHITE);
-
-    // --- 2. 中央白色卡片区 ---
-    lcd_fill(15, 60, 305, 175, WHITE); 
-    lcd_draw_rectangle(15, 60, 305, 175, GRAYBLUE);
-    
-    // 【修正点】在这里必须切换为 WHITE
-    g_back_color = WHITE; 
-    
-    // 在白色背景上写字
-    // 如果 step_msg 包含中文且字库不支持，这里会显示一串方块或乱码
-    lcd_show_string(30, 120, 260, 16, 16, (char*)step_msg, text_color);
-}
-
 static wifi_user_mode_t g_wifi_user_mode = WIFI_MODE_WEB_CONFIG;
-
 void wifi_switch_mode(void)
 {
-    ESP_LOGI("WIFI", "Switching WiFi mode from %d...", g_wifi_user_mode);
+    ui_set_status("System Switching...");
 
-    // --- 1. 中间过渡状态 ---
-    // 先显示一个切换中的界面，避免屏幕长时间停留在旧信息上
-    lcd_clear(LGRAY);
-    lcd_show_string(30, 110, 260, 16, 16, "System Switching...", BRRED);
-
-    // 2. 安全停止并销毁 MQTT
-    if (client) {
-        esp_mqtt_client_stop(client);
-        vTaskDelay(pdMS_TO_TICKS(100)); 
-        esp_mqtt_client_destroy(client);
-        client = NULL;
-    }
-
-    // 3. 停止 WiFi 驱动
     esp_wifi_stop();
 
-    // --- 4. 模式切换与 LCD 调用 ---
     if (g_wifi_user_mode == WIFI_MODE_WEB_CONFIG)
     {
-        /* 目标：进入纯 STA 模式 */
-        ESP_LOGI("WIFI", "Switching to [STA ONLY] Mode");
-        
-        // 尝试获取之前保存的配置信息（用于显示即将连接的 SSID）
         wifi_config_t conf;
         esp_wifi_get_config(WIFI_IF_STA, &conf);
-        
-        // 调用你要求的 LCD 主页显示
-        // 刚切换时 IP 还没拿到，所以传 NULL 或 "Connecting..."
-        lcd_show_homepage((char *)conf.sta.ssid, "Waiting for IP...", false);
 
-        web_prov_stop(); 
-        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+        ui_set_status("STA ONLY MODE");
+        ui_set_ssid((char *)conf.sta.ssid);
+        ui_set_ip("Waiting for IP...");
+
+        web_prov_stop();
+        esp_wifi_set_mode(WIFI_MODE_STA);
         g_wifi_user_mode = WIFI_MODE_STA_ONLY;
     }
     else
     {
-        /* 目标：进入 AP + STA 配网模式 */
-        ESP_LOGI("WIFI", "Switching to [AP + STA] Mode");
-        
-        // 配网模式下，SSID 通常是设备自身的热点名称 (如 ESP32-S3-Config)
-        lcd_show_homepage("ESP32_Config", "192.168.4.1", true);
+        ui_set_status("AP + STA MODE");
+        ui_set_ssid("ESP32_Config");
+        ui_set_ip("192.168.4.1");
 
-        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
-        web_prov_start(); 
+        esp_wifi_set_mode(WIFI_MODE_APSTA);
+        web_prov_start();
         g_wifi_user_mode = WIFI_MODE_WEB_CONFIG;
     }
 
-    // 5. 重新启动 WiFi 并连接
-    ESP_ERROR_CHECK(esp_wifi_start());
-    esp_wifi_connect(); 
-
-    ESP_LOGI("WIFI", "WiFi mode switch finished.");
+    esp_wifi_start();
+    esp_wifi_connect();
 }
 
 // Static handle to the OTA update task, initialized to NULL
@@ -163,66 +63,83 @@ static TaskHandle_t xOtaTaskHandle = NULL;
 static void ota_update_task(void *arg)
 {
     printf("Starting OTA update task...\n");
+
     login_response_t resp = {0};
 
     if (http_login(&resp)) {
+
         ESP_LOGI("MAIN", "登录成功, token=%s", resp.token);
-        // ⭐ 1. 登录成功 → 请求版本
+
+        ui_ota_update("LOGIN OK");
+
+        // ⭐ 1. 获取版本
         if (http_get_version(resp.token)) {
+
+            ui_ota_update("GET VERSION OK");
+
             char buf[256] = {0};
             const char *file_name = g_download_info.file_name;
 
-            // 如果响应中没有 file_name，则从 URL 取基名
             if (file_name == NULL || file_name[0] == '\0') {
                 const char *basename = strrchr(g_download_info.url, '/');
-                if (basename && basename[1] != '\0') {
-                    file_name = basename + 1;
-                } else {
-                    file_name = "ota_update.bin";
-                }
-                ESP_LOGW("MAIN", "文件名缺失，使用备用文件名: %s", file_name);
+                file_name = (basename && basename[1]) ? basename + 1 : "ota_update.bin";
             }
 
-            // 拼接 U 盘完整路径
             snprintf(buf, sizeof(buf), "%s/%s", USB_PATH, file_name);
             strcpy(g_strWriteLocalFileName, buf);
 
-            // ⭐ 2. 开始下载到 U 盘
-            if (download_to_usb(g_download_info.url, g_strWriteLocalFileName) == ESP_OK) {
-                ESP_LOGI("MAIN", "下载完成，开始 MD5 校验...");
-                lcd_show_string(30, 190, 260, 16, 16, "MD5 Checking!          ", GREEN);
+            ui_ota_update("DOWNLOADING...");
 
-                // ⭐ 3. 进行 MD5 完整性校验
+            // ⭐ 2. 下载
+            if (download_to_usb(g_download_info.url, g_strWriteLocalFileName) == ESP_OK) {
+
+                ESP_LOGI("MAIN", "下载完成，开始 MD5 校验...");
+
+                ui_ota_update("MD5 CHECKING...");
+
+                // ⭐ 3. MD5 校验
                 if (verify_file_md5(g_strWriteLocalFileName, g_download_info.md5)) {
-                    ESP_LOGI("MAIN", "✅ MD5 校验通过，固件合法！");
-                    lcd_show_string(30, 190, 260, 16, 16, "MD5 CHECK OK!        ", GREEN);
-                    lcd_show_string(30, 210, 260, 12, 12, "Firmware is valid.    ", GRAY);
-                    // --- 此处可以安全地执行后续 OTA 处理 (如从 U 盘刷机) ---
+
+                    ESP_LOGI("MAIN", "MD5 校验通过");
+
+                    ui_ota_update("MD5 OK");
+
+                    vTaskDelay(pdMS_TO_TICKS(500));
+
+                    ui_ota_update("READY FOR OTA");
+
+                    // 👉 真正 OTA
                     // execute_ota_update_from_usb(g_strWriteLocalFileName);
-                    
+
                 } else {
-                    ESP_LOGE("MAIN", "❌ MD5 校验失败，文件可能在传输中损坏！");
-                    lcd_fill(20, 185, 300, 235, WHITE); // 清理
-                    lcd_show_string(30, 190, 260, 16, 16, "MD5 CHECK FAILED!", RED);
-                    lcd_show_string(30, 210, 260, 12, 12, "File corrupted.", RED);
-                    // 校验失败，建议删除损坏的文件，避免占用空间或被误用
-                    unlink(g_strWriteLocalFileName); 
+
+                    ESP_LOGE("MAIN", "MD5 校验失败");
+
+                    ui_ota_update("MD5 FAILED");
+
+                    vTaskDelay(pdMS_TO_TICKS(500));
+
+                    unlink(g_strWriteLocalFileName);
                 }
+
             } else {
-                ESP_LOGE("MAIN", "下载失败，请检查网络或 U 盘挂载状态");
+                ESP_LOGE("MAIN", "下载失败");
+
+                ui_ota_update("DOWNLOAD FAILED");
             }
         }
-    } 
-    else 
-    {
+
+    } else {
         ESP_LOGE("MAIN", "登录失败");
+
+        ui_ota_update("LOGIN FAILED");
     }
 
     printf("OTA update task finished.\n");
-    xOtaTaskHandle = NULL; // Clear the task handle as the task is about to delete itself
-    vTaskDelete(NULL); // Delete this task
-}
 
+    xOtaTaskHandle = NULL;
+    vTaskDelete(NULL);
+}
 
 esp_err_t run_full_upgrade_chain(const char *token) {
     int64_t product_id = -1;

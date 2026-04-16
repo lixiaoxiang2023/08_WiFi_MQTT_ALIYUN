@@ -36,6 +36,7 @@
 
 static const char *TAG = "MAIN";
 i2c_obj_t i2c0_master;
+QueueHandle_t lvgl_queue = NULL;
 
 void print_mem_info(const char *tag)
 {
@@ -62,12 +63,32 @@ void mem_monitor_task(void *arg)
 
 #include "lv_port_lcd.h"
 #include "lvgl.h"
+void setup_ui(void) {
+    // 获取当前活动屏幕
+    lv_obj_t * screen = lv_scr_act();
+
+    // 1. 创建一个标签 (Label)
+    lv_obj_t * label = lv_label_create(screen);
+    lv_label_set_text(label, "SL-1000 SYSTEM READY");
+    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 20);
+
+    // 2. 创建一个简单的按钮
+    lv_obj_t * btn = lv_btn_create(screen);
+    lv_obj_set_size(btn, 120, 50);
+    lv_obj_align(btn, LV_ALIGN_CENTER, 0, 0);
+    
+    // 给按钮加文字
+    lv_obj_t * btn_label = lv_label_create(btn);
+    lv_label_set_text(btn_label, "START UPGRADE");
+    lv_obj_center(btn_label);
+}
+#include "lvgl_manager.h"
 
 void app_main(void)
 {
     esp_err_t ret;
     char logo_str[64]= {0};
-
+    lvgl_queue = xQueueCreate(10, sizeof(lvgl_msg_t));
     ret = nvs_flash_init();
      //   ESP_ERROR_CHECK(nvs_flash_erase());
 
@@ -89,8 +110,14 @@ void app_main(void)
     i2c0_master = iic_init(I2C_NUM_0);
     spi2_init();
     xl9555_init(i2c0_master);
-    lcd_init();
+  //  lcd_init();
+    lv_disp_t * disp = lv_port_lcd_init();
 
+    if (disp == NULL) {
+        ESP_LOGE("MAIN", "LVGL 驱动初始化失败！");
+        return;
+    }
+    
     ESP_LOGI("MAIN", "soft version: %s",FW_VERSION);
     tud_usb_flash();
     firmware_storage_check(NULL);
@@ -107,15 +134,15 @@ void app_main(void)
     //     1
     // );
 
-    xTaskCreatePinnedToCore(
-        usb_copy_task,
-        "usb_copy",
-        4096,
-        NULL,
-        4,
-        NULL,
-        1
-    );
+    // xTaskCreatePinnedToCore(
+    //     usb_copy_task,
+    //     "usb_copy",
+    //     4096,
+    //     NULL,
+    //     4,
+    //     NULL,
+    //     1
+    // );
     //xTaskCreate(key_scan_task, "key_scan_task", 4* 1024, NULL, 5, NULL);
     // 将 key_scan_task 也固定到核心 1
     xTaskCreatePinnedToCore(
@@ -139,6 +166,15 @@ void app_main(void)
     ota_queue = xQueueCreate(1, sizeof(ota_msg_t));
 
     // 2. 创建守护任务（常驻内存）
-    xTaskCreate(ota_daemon_task, "ota_daemon", 8192, NULL, 5, NULL);
-}
+  //  xTaskCreate(ota_daemon_task, "ota_daemon", 8192, NULL, 5, NULL);
 
+      xTaskCreatePinnedToCore(
+        lvgl_task,
+        "lvgl_task",
+        4096,
+        NULL,
+        4,
+        NULL,
+        1
+    );
+}

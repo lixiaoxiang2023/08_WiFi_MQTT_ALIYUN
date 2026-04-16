@@ -227,7 +227,7 @@ esp_err_t wifi_smartconfig_sta(void)
     /* ---------- 创建 STA & AP ---------- */
     esp_netif_create_default_wifi_sta();
     esp_netif_create_default_wifi_ap();
-
+    ESP_LOGI("MEM", "Internal Free: %d KB", heap_caps_get_free_size(MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL) / 1024);
     /* ---------- WiFi 初始化 ---------- */
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
@@ -409,30 +409,80 @@ void initialize_sntp_v5(void) {
         print_current_time();
     }
 }
-volatile SystemStatus_t g_sys_status;
+// 在 wifi_config.c 顶部添加
+#include "lvgl.h"              // 必须包含，否则不认识 lv_obj_t
+#include "esp_lvgl_port.h"     // 如果你用到了锁 lvgl_port_lock
+static lv_obj_t *ui_init_screen;
+static lv_obj_t *ui_arc_loader;
+static lv_obj_t *ui_status_label;
 
+void ui_init_screen_create(void)
+{
+    if (lvgl_port_lock(0)) {
+        ui_init_screen = lv_obj_create(NULL);
+        lv_obj_set_style_bg_color(ui_init_screen, lv_palette_main(LV_PALETTE_BLUE_GREY), 0);
+        lv_obj_set_style_bg_grad_color(ui_init_screen, lv_color_hex(0x1A1A1A), 0);
+        lv_obj_set_style_bg_grad_dir(ui_init_screen, LV_GRAD_DIR_VER, 0);
+
+        // 创建中心圆环加载条
+        ui_arc_loader = lv_arc_create(ui_init_screen);
+        lv_obj_set_size(ui_arc_loader, 150, 150);
+        lv_arc_set_rotation(ui_arc_loader, 270);
+        lv_arc_set_bg_angles(ui_arc_loader, 0, 360);
+        lv_obj_set_style_arc_width(ui_arc_loader, 10, LV_PART_MAIN);
+        lv_obj_set_style_arc_width(ui_arc_loader, 10, LV_PART_INDICATOR);
+        lv_obj_center(ui_arc_loader);
+        // 让圆环动起来
+        lv_arc_set_value(ui_arc_loader, 10); 
+
+        // 状态文字
+        ui_status_label = lv_label_create(ui_init_screen);
+        lv_obj_set_style_text_font(ui_status_label, &lv_font_montserrat_18, 0);
+        lv_obj_set_style_text_color(ui_status_label, lv_color_white(), 0);
+        lv_label_set_text(ui_status_label, "System Booting...");
+        lv_obj_align(ui_status_label, LV_ALIGN_CENTER, 0, 100);
+
+        lv_scr_load(ui_init_screen);
+        lvgl_port_unlock();
+    }
+}
+
+// 供后台任务调用的更新函数（线程安全）
+void ui_update_init_status(const char *text, int progress, lv_color_t color)
+{
+    if (lvgl_port_lock(0)) {
+        lv_label_set_text(ui_status_label, text);
+        lv_arc_set_value(ui_arc_loader, progress);
+        lv_obj_set_style_arc_color(ui_arc_loader, color, LV_PART_INDICATOR);
+        lvgl_port_unlock();
+    }
+}
+
+volatile SystemStatus_t g_sys_status;
 void wifi_background_task(void *pv)
 {
-    // 初始状态：禁止操作
     g_sys_status = SYS_INIT;
-    ESP_LOGI("WIFI", "WiFi background task started");
+    
+    // 创建 LVGL 初始化界面
+    ui_init_screen_create();
 
     // --- 步骤 1: 基础硬件 ---
-    lcd_show_init_screen("WIFI Power Init...", DARKBLUE);
+    ui_update_init_status("Hardware Initializing...", 20, lv_palette_main(LV_PALETTE_BLUE));
     esp_wifi_set_ps(WIFI_PS_NONE);
     vTaskDelay(pdMS_TO_TICKS(500));
 
     // --- 步骤 2: WiFi 配网 ---
     g_sys_status = SYS_WIFI_WAIT;
-    lcd_show_init_screen("Waiting for WiFi...", LIGHTBLUE);
+    ui_update_init_status("Waiting for WiFi...", 40, lv_palette_main(LV_PALETTE_AMBER));
+    
     wifi_smartconfig_sta();
     wifi_config_wait_connected();
     
-    lcd_show_init_screen("WiFi Connected!", GREEN);
+    ui_update_init_status("WiFi Connected!", 60, lv_palette_main(LV_PALETTE_GREEN));
     vTaskDelay(pdMS_TO_TICKS(500));
 
     // --- 步骤 3: SNTP 时间同步 ---
-    lcd_show_init_screen("Syncing Network Time...", DARKBLUE);
+    ui_update_init_status("Syncing Network Time...", 75, lv_palette_main(LV_PALETTE_CYAN));
     initialize_sntp_v5();
 
     // --- 步骤 4: 云端登录与数据同步 ---
@@ -442,36 +492,29 @@ void wifi_background_task(void *pv)
 
     while (retry_count-- > 0 && !sync_success) {
         char msg[32];
-        snprintf(msg, sizeof(msg), "Cloud Sync (%d)...", retry_count + 1);
-        lcd_show_init_screen(msg, BLUE);
+        snprintf(msg, sizeof(msg), "Cloud Syncing (%d)...", retry_count + 1);
+        ui_update_init_status(msg, 85, lv_palette_main(LV_PALETTE_INDIGO));
 
         if (http_login(&g_strResp)) {
             if (http_get_all_products(g_strResp.token)) {
                 sync_success = true;
             }
         }
-
-        if (!sync_success && retry_count > 0) {
-            vTaskDelay(pdMS_TO_TICKS(3000)); 
-        }
+        if (!sync_success && retry_count > 0) vTaskDelay(pdMS_TO_TICKS(2000));
     }
 
     // --- 步骤 5: 完成或失败 ---
     if (sync_success) {
-        lcd_show_init_screen("SYSTEM READY", GREEN);
+        ui_update_init_status("SYSTEM READY", 100, lv_palette_main(LV_PALETTE_GREEN));
         vTaskDelay(pdMS_TO_TICKS(1000));
-        
-        // ⭐ 彻底完成，解锁操作
         g_sys_status = SYS_READY; 
         
-        // 进入真正的系统主页
-        // 这里假设已经有逻辑能获取到最新的 ssid 和 ip
-        // lcd_show_homepage(current_ssid, current_ip, false);
+        // 此处跳转主页逻辑
+        // ui_goto_homepage(); 
     } else {
         g_sys_status = SYS_ERROR;
-        lcd_show_init_screen("INIT FAILED!", RED);
-        // 如果失败，可以考虑在这里停住或者跳转到错误处理界面
+        ui_update_init_status("INIT FAILED!", 100, lv_palette_main(LV_PALETTE_RED));
     }
-    ESP_LOGI("WIFI", "Background task finished.");
+    
     vTaskDelete(NULL); 
 }

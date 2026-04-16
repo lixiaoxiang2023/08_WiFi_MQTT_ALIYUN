@@ -124,7 +124,15 @@ http_response_t g_http_resp;
 /* ===== CA PEM embedded symbols ===== */
 extern const uint8_t _binary_huaweicloud_iot_root_ca_list_pem_start[];
 extern const uint8_t _binary_huaweicloud_iot_root_ca_list_pem_end[];
-
+typedef enum {
+    LVGL_MSG_SET_STATUS = 1,
+    LVGL_MSG_SET_SSID,
+    LVGL_MSG_SET_IP,
+    LVGL_MSG_SET_MODE,   // ❗这个没处理
+    LVGL_MSG_SET_OTA_TEXT,
+    LVGL_MSG_SET_PROGRESS,
+    LVGL_MSG_DOWNLOAD_PROGRESS
+} lvgl_msg_type_t;
 /* ===================== 状态结构 ===================== */
 typedef struct {
     FILE *fp;
@@ -134,6 +142,18 @@ typedef struct {
     bool finished;
     bool success;
 } obs_http_state_t;
+
+typedef struct {
+    int percentage;
+    float speed_kb;
+    int eta_min;
+    int eta_sec;
+    char status[32];
+} download_ui_msg_t;
+typedef struct {
+    lvgl_msg_type_t type;
+    char text[64];
+} lvgl_msg_t;
 
 static obs_http_state_t g_state;
 
@@ -272,6 +292,25 @@ static void obs_state_reset(void)
 {
     memset(&g_state, 0, sizeof(g_state));
 }
+extern QueueHandle_t lvgl_queue;
+
+static void ui_push_download(int percent, float speed, int eta_min, int eta_sec)
+{
+    download_ui_msg_t temp_msg; // 栈上的临时变量
+    temp_msg.percentage = percent;
+    temp_msg.speed_kb = speed;
+    temp_msg.eta_min = eta_min;
+    temp_msg.eta_sec = eta_sec;
+
+    lvgl_msg_t lv_msg = {0};
+    lv_msg.type = LVGL_MSG_DOWNLOAD_PROGRESS;
+
+    // ⭐ 拷贝结构体内容到消息中
+    memcpy(lv_msg.text, &temp_msg, sizeof(download_ui_msg_t)); 
+
+    xQueueSend(lvgl_queue, &lv_msg, 0);
+}
+
 /* ===================== 下载 ===================== */
 
 esp_err_t download_to_usb(const char *url, const char *filename) {
@@ -286,25 +325,15 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
     }
 
     // --- 2. UI 初始化 ---
-    lcd_clear(LGRAY); 
-    lcd_fill(0, 0, 320, 45, DARKBLUE);
-    g_back_color = DARKBLUE; 
-    lcd_show_string(15, 12, 290, 24, 24, "FIRMWARE UPGRADE", WHITE);
-    lcd_fill(15, 60, 305, 175, WHITE); 
-    lcd_draw_rectangle(15, 60, 305, 175, GRAYBLUE);
-    g_back_color = WHITE; 
     const char *short_name = strrchr(filename, '/');
     short_name = (short_name == NULL) ? filename : (short_name + 1);
-    lcd_show_string(30, 75, 240, 16, 16, "Target File:", BLACK);
-    lcd_show_string(30, 95, 240, 16, 16, (char *)short_name, BLUE);
-    lcd_draw_rectangle(BAR_X - 1, BAR_Y - 1, BAR_X + BAR_WIDTH + 1, BAR_Y + BAR_HEIGHT + 1, GRAYBLUE);
-    ESP_LOGI("DW", "filename:%s", short_name);
 
+    ESP_LOGI("DW", "filename:%s", short_name);
+    ui_push_download(0, 0.0f, 0, 0); // 初始化UI显示
     // --- 3. 打开文件 ---
     FILE *f = fopen(filename, "ab");
     if (f == NULL) {
         ESP_LOGE("DW", "无法打开文件: %s, 原因: %s", filename, strerror(errno));
-        lcd_show_string(30, 185, 260, 16, 16, "Error: USB Disk Error", RED);
         return ESP_FAIL;
     }
 
@@ -331,7 +360,6 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
     }
 
     if (esp_http_client_open(client, 0) != ESP_OK) {
-        lcd_show_string(30, 185, 260, 16, 16, "Error: Network Failed", RED);
         esp_http_client_cleanup(client); fclose(f); return ESP_FAIL;
     }
 
@@ -352,7 +380,6 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
         ESP_LOGI("DW", "HTTP 416: File already complete.");
         total_content_length = local_file_size;
         skip_download = true;
-        lcd_fill(BAR_X, BAR_Y, BAR_X + BAR_WIDTH, BAR_Y + BAR_HEIGHT, GREEN);
     } else if (status_code == 200) {
         if (local_file_size > 0) {
             ESP_LOGW("DW", "Server returned 200, restarting...");
@@ -404,14 +431,7 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
 
                         if (percentage != last_percentage) {
                             last_percentage = percentage;
-                            g_back_color = WHITE; 
-                            char p_str[64];
-                            snprintf(p_str, sizeof(p_str), "%d%% %.1fKB/s %02d:%02d ", percentage, instant_speed, eta_min, eta_sec);
-                            lcd_show_string(30, 120, 280, 16, 16, p_str, DARKBLUE);
-                            int current_fill = (BAR_WIDTH * percentage) / 100;
-                            if (current_fill > 0) {
-                                lcd_fill(BAR_X, BAR_Y, BAR_X + current_fill, BAR_Y + BAR_HEIGHT, GREEN);
-                            }
+                            ui_push_download(percentage, instant_speed, eta_min, eta_sec); // 更新UI显示
                         }
                         last_speed_bytes = total_read_len;
                         last_speed_time = now_time;
@@ -432,14 +452,9 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
     fsync(fileno(f)); 
     fclose(f);
     esp_http_client_cleanup(client);
-
-    g_back_color = LGRAY;
     if (is_done) {
-        lcd_show_string(30, 190, 260, 16, 16, "DOWNLOAD DONE!", GREEN);
-
         return ESP_OK;
     } else {
-        lcd_show_string(30, 185, 260, 24, 24, "DOWNLOAD ERROR", RED);
         return ESP_FAIL;
     }
 }
@@ -473,7 +488,6 @@ esp_err_t obs_http_download(const char *url, const char *local_path)
          g_state.retry_count++) {
 
         ESP_LOGI(OBS_TAG, "Download try %d", g_state.retry_count + 1);
-        lcd_show_string(30, 150, 200, 16, 16, " Downloading             ", RED);
         /* =================== 这里加 Header =================== */
 
         // 常规头
@@ -482,7 +496,6 @@ esp_err_t obs_http_download(const char *url, const char *local_path)
         esp_err_t err = esp_http_client_perform(client);
         if (err == ESP_OK && g_state.success) {
             ESP_LOGI(OBS_TAG, "Download OK");
-            lcd_show_string(30, 150, 200, 16, 16, " Download OK                ", RED);
             esp_http_client_cleanup(client);
             return ESP_OK;
         }
@@ -561,12 +574,10 @@ esp_err_t obs_http_upload(const char *url, const char *local_path)
 
         total_sent += w;
         ESP_LOGI(OBS_TAG, "Progress: %d / %ld", total_sent, file_size);
-        lcd_show_string(30, 150, 200, 16, 16, " Uploading        ", RED);
 
     }
 
     ESP_LOGI(OBS_TAG, "Upload finished %d/%ld", total_sent, file_size);
-    lcd_show_string(30, 150, 200, 16, 16, " Upload finished", RED);
 
     esp_http_client_fetch_headers(client);
 

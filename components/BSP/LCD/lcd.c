@@ -27,7 +27,6 @@
 
 
 #define SPI_LCD_TYPE    1           /* SPI接口屏幕类型（1：2.4寸SPILCD  0：1.3寸SPILCD） */  
-uint16_t g_back_color = 0xFFFF;
 
 spi_device_handle_t MY_LCD_Handle;
 uint8_t lcd_buf[LCD_TOTAL_BUF_SIZE];
@@ -536,7 +535,6 @@ void lcd_show_char(uint16_t x, uint16_t y, uint8_t chr, uint8_t size, uint8_t mo
                 else if (mode == 0) 
                 {
                     // 使用全局背景色变量，不再死写 0xFFFF
-                    colortemp = g_back_color; 
                 }
 
                 lcd_write_data16(colortemp);
@@ -564,8 +562,6 @@ void lcd_show_char(uint16_t x, uint16_t y, uint8_t chr, uint8_t size, uint8_t mo
                 }
                 else if (mode == 0) 
                 {
-                    // --- 核心修正：同步 24 号字的背景颜色 ---
-                    colortemp = g_back_color; 
                 }
 
                 lcd_write_data16(colortemp);
