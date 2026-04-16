@@ -6,69 +6,7 @@
 static const char *TAG = "OTA_PARSER";
 
 
-esp_err_t create_json_packet(json_packet_t *packet, cJSON **output) {
-    cJSON *root = cJSON_CreateObject();
-    if (!root) return ESP_FAIL;
-    
-    // 添加基础字段
-    if (packet->device_id) {
-        cJSON_AddStringToObject(root, "service_id", packet->device_id);
-    }
-    
-    if (packet->timestamp > 0) {
-        cJSON_AddNumberToObject(root, "event_time", packet->timestamp);
-    }
-    
-    // 添加动态键值对
-    for (size_t i = 0; i < packet->pair_count; i++) {
-        kv_pair_t *pair = &packet->pairs[i];
-        
-        if (pair->is_null) {
-            cJSON_AddNullToObject(root, pair->key);
-        } else if (pair->is_string && pair->value_str) {
-            cJSON_AddStringToObject(root, pair->key, pair->value_str);
-        } else if (pair->is_number) {
-            cJSON_AddNumberToObject(root, pair->key, pair->value_num);
-        } else if (pair->is_bool) {
-            cJSON_AddBoolToObject(root, pair->key, pair->value_bool);
-        } else if (pair->is_object && pair->value_obj) {
-            cJSON_AddItemToObject(root, pair->key, pair->value_obj);
-        } else if (pair->is_array && pair->value_arr) {
-            cJSON_AddItemToObject(root, pair->key, pair->value_arr);
-        }
-    }
-    
-    *output = root;
-    return ESP_OK;
-}
 
-esp_err_t parse_json_packet(const char *json_str, json_packet_t *packet) {
-    cJSON *root = cJSON_Parse(json_str);
-    if (!root) return ESP_FAIL;
-    
-    // 解析基础字段
-    cJSON *device_id = cJSON_GetObjectItem(root, "device_id");
-    if (device_id && cJSON_IsString(device_id)) {
-        packet->device_id = strdup(device_id->valuestring);
-    }
-    
-    cJSON *timestamp = cJSON_GetObjectItem(root, "timestamp");
-    if (timestamp && cJSON_IsNumber(timestamp)) {
-        packet->timestamp = (uint32_t)timestamp->valuedouble;
-    }
-    
-    // 解析其他键值对
-    cJSON *item = root->child;
-    while (item) {
-        // 动态添加pair
-        // 这里简化处理，实际应用中需要动态扩展pairs数组
-        // ...
-        item = item->next;
-    }
-    
-    cJSON_Delete(root);
-    return ESP_OK;
-}
 
 static char *dup_json_string(const cJSON *item)
 {
@@ -368,37 +306,4 @@ bool parse_ota_response(const char *json_data, ota_info_t *out_info) {
 
     cJSON_Delete(root);
     return true;
-}
-
-// 假设我们最多支持 10 个产品显示在下拉框
-product_info_t g_products[30];
-int g_product_count = 0;
-
-void parse_all_products(const char *json_str) {
-    cJSON *root = cJSON_Parse(json_str);
-    if (root == NULL) return;
-
-    cJSON *data_array = cJSON_GetObjectItem(root, "data");
-    if (cJSON_IsArray(data_array)) {
-        g_product_count = cJSON_GetArraySize(data_array);
-        
-        // 限制最大解析数量，防止内存溢出
-        int limit = (g_product_count < 30) ? g_product_count : 30;
-        
-        for (int i = 0; i < limit; i++) {
-            cJSON *item = cJSON_GetArrayItem(data_array, i);
-            if (item) {
-                cJSON *name = cJSON_GetObjectItem(item, "name");
-                cJSON *code = cJSON_GetObjectItem(item, "code");
-                
-                if (cJSON_IsString(name) && cJSON_IsString(code)) {
-                    strncpy(g_products[i].name, name->valuestring, sizeof(g_products[i].name) - 1);
-                    strncpy(g_products[i].code, code->valuestring, sizeof(g_products[i].code) - 1);
-                    
-                    ESP_LOGI("PARSE", "找到产品[%d]: %s (%s)", i, g_products[i].name, g_products[i].code);
-                }
-            }
-        }
-    }
-    cJSON_Delete(root);
 }

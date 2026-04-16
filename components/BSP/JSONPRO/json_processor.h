@@ -5,29 +5,7 @@
 #include "cJSON.h"
 #include "esp_err.h"
 #include <stdbool.h>
-typedef struct {
-    char *key;
-    char *value_str;
-    double value_num;
-    bool value_bool;
-    cJSON *value_obj;
-    cJSON *value_arr;
-    bool is_string;
-    bool is_number;
-    bool is_bool;
-    bool is_object;
-    bool is_array;
-    bool is_null;
-} kv_pair_t;
 
-// 通用JSON处理器
-typedef struct {
-    char *topic;
-    char *device_id;
-    uint32_t timestamp;
-    kv_pair_t *pairs;
-    size_t pair_count;
-} json_packet_t;
 
 typedef struct {
     char *object_device_id;
@@ -105,11 +83,7 @@ bool parse_download_url_response(const char *json_str, download_url_info_t *out)
 
 /** 释放 parse_download_url_response() 分配的内存 */
 void free_download_url_info(download_url_info_t *info);
-esp_err_t create_json_packet(json_packet_t *packet, cJSON **output);
-esp_err_t parse_json_packet(const char *json_str, json_packet_t *packet);
-void free_json_packet(json_packet_t *packet);
 bool parse_login_response(const char *json_str, login_response_t *out);
 void free_login_response(login_response_t *out);
 bool parse_ota_response(const char *json_data, ota_info_t *out_info);
-void parse_all_products(const char *json_str);
 #endif

@@ -21,6 +21,7 @@
 #include "obs_http.h"
 #include "mbedtls/md5.h" // 必须包含这个头文件
 #include "web_server_handlers.h" // 确保包含新的 NVS 配置处理器头文件
+#include <sys/stat.h> // 必须引入此头文件获取文件信息
 
 #define OBS_TAG "OBS_HTTP"
 #define OBS_MAX_RETRY 3
@@ -273,7 +274,6 @@ static void obs_state_reset(void)
 }
 /* ===================== 下载 ===================== */
 
-#include <sys/stat.h> // 必须引入此头文件获取文件信息
 esp_err_t download_to_usb(const char *url, const char *filename) {
     if (url == NULL || filename == NULL) return ESP_ERR_INVALID_ARG;
 
@@ -298,10 +298,12 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
     lcd_show_string(30, 75, 240, 16, 16, "Target File:", BLACK);
     lcd_show_string(30, 95, 240, 16, 16, (char *)short_name, BLUE);
     lcd_draw_rectangle(BAR_X - 1, BAR_Y - 1, BAR_X + BAR_WIDTH + 1, BAR_Y + BAR_HEIGHT + 1, GRAYBLUE);
+    ESP_LOGI("DW", "filename:%s", short_name);
 
     // --- 3. 打开文件 ---
     FILE *f = fopen(filename, "ab");
     if (f == NULL) {
+        ESP_LOGE("DW", "无法打开文件: %s, 原因: %s", filename, strerror(errno));
         lcd_show_string(30, 185, 260, 16, 16, "Error: USB Disk Error", RED);
         return ESP_FAIL;
     }
@@ -350,6 +352,7 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
         ESP_LOGI("DW", "HTTP 416: File already complete.");
         total_content_length = local_file_size;
         skip_download = true;
+        lcd_fill(BAR_X, BAR_Y, BAR_X + BAR_WIDTH, BAR_Y + BAR_HEIGHT, GREEN);
     } else if (status_code == 200) {
         if (local_file_size > 0) {
             ESP_LOGW("DW", "Server returned 200, restarting...");
@@ -432,7 +435,8 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
 
     g_back_color = LGRAY;
     if (is_done) {
-        lcd_show_string(30, 185, 260, 24, 24, "DOWNLOAD DONE!", GREEN);
+        lcd_show_string(30, 190, 260, 16, 16, "DOWNLOAD DONE!", GREEN);
+
         return ESP_OK;
     } else {
         lcd_show_string(30, 185, 260, 24, 24, "DOWNLOAD ERROR", RED);

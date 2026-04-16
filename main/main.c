@@ -60,6 +60,9 @@ void mem_monitor_task(void *arg)
     }
 }
 
+#include "lv_port_lcd.h"
+#include "lvgl.h"
+
 void app_main(void)
 {
     esp_err_t ret;
@@ -87,12 +90,6 @@ void app_main(void)
     spi2_init();
     xl9555_init(i2c0_master);
     lcd_init();
-
-    //snprintf(logo_str, sizeof(logo_str), "Version: %s", FW_VERSION);
-   // lcd_show_string(30, 50, 200, 16, 16, logo_str, RED);
-    //lcd_show_string(30, 110, 200, 16, 16, "STA      ", RED);
-    //lcd_show_string(30, 130, 200, 16, 16, "                          ", RED);
-    //lcd_show_homepage("STA ONLY", "192.168.x.x"); // 传入实际获取的IP
 
     ESP_LOGI("MAIN", "soft version: %s",FW_VERSION);
     tud_usb_flash();

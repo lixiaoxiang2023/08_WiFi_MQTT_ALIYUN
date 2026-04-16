@@ -8,7 +8,8 @@ set(src_dirs
             SDIO
             OBS
             WEB
-            XL9555)
+            XL9555
+            LVGL)
 
 set(include_dirs
             IIC
@@ -21,7 +22,8 @@ set(include_dirs
             SDIO   
             OBS
             WEB
-            XL9555)
+            XL9555
+            LVGL)
 
 set(requires
             driver
@@ -36,8 +38,10 @@ set(requires
             esp_http_client
             esp_http_server
             esp_system
-            esp_wifi             # 【关键】添加这一行
-            esp_event)           # 【建议添加】web_server_handlers.c 中也用到了 esp_event_handler_register/unregister
+            esp_wifi             
+            esp_event
+            lvgl
+            esp_lvgl_port)          
 
 idf_component_register(SRC_DIRS ${src_dirs} INCLUDE_DIRS ${include_dirs} REQUIRES ${requires} )
 

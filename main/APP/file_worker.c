@@ -80,7 +80,6 @@ void file_task_worker(void *arg)
 
                 xQueueSend(usb_copy_queue, &msg, portMAX_DELAY);
             }
-
             free(json);
         }
     }

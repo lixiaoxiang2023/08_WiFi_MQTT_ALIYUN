@@ -62,66 +62,6 @@ static void log_error_if_nonzero(const char *message, int error_code)
     }
 }
 
-// 使用示例
-void send_kv_json(esp_mqtt_client_handle_t client) {
-    json_packet_t packet = {
-        .device_id = "WirelessUsb",
-        .timestamp = time(NULL),
-        .pairs = NULL,
-        .pair_count = 0
-    };
-    
-    // 动态创建pairs数组
-    kv_pair_t pairs[1] = {0};
-    
-    // 添加温度
-    pairs[0].key = "A1CfgFile";
-    pairs[0].is_string = true;
-    pairs[0].value_str = "HI";
-
-       // 创建根JSON对象
-    cJSON *root = cJSON_CreateObject();
-    if (root == NULL) {
-        ESP_LOGE(TAG, "Failed to create root JSON object");
-        return;
-    }
-    
-    // 创建services数组
-    cJSON *services_array = cJSON_CreateArray();
-    if (services_array == NULL) {
-        ESP_LOGE(TAG, "Failed to create services array");
-        cJSON_Delete(root);
-        return;
-    }
-    
-    // 将services数组添加到根对象
-    cJSON_AddItemToObject(root, "services", services_array);
-   
-
-
-    cJSON *config = cJSON_CreateObject();
-        // 将service对象添加到数组
-    cJSON_AddItemToArray(services_array, config);
-
-    cJSON_AddStringToObject(config, "service_id", "WirelessUsb");
-    pairs[0].value_obj = config;
-    
-    packet.pairs = pairs;
-    packet.pair_count = 1;
-    
-    cJSON *json = NULL;
-    if (create_json_packet(&packet, &json) == ESP_OK) {
-        char *json_str = cJSON_PrintUnformatted(json);
-            // 打印生成的JSON（用于调试）
-        ESP_LOGI(TAG, "Generated JSON: %s", json_str);
-        if (json_str) {
-            esp_mqtt_client_publish(client, DEVICE_PUBLISH_2, json_str, 0, 1, 0);
-            free(json_str);
-        }
-        cJSON_Delete(json);
-    }
-}
-
 // 生成并发送JSON数据
 void send_json_data_services(esp_mqtt_client_handle_t client,const char *topic,char ctype, char* aData) {
     // 创建根JSON对象

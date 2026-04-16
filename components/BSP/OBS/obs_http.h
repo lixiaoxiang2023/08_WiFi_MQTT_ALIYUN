@@ -27,15 +27,14 @@ extern "C" {
 
     #define DOWNLOAD_URL            "http://111.59.118.25:18083/software/getavailableversion"
     #define DOWNLOAD_CURRENT_URL    "http://111.59.118.25:18083/software/getcurrentversion"
-    #define PRODUCT_CODE            "test_code"
-    #define PLAT_FORM_CODE          "mcu"
+    #define PRODUCT_CODE            "esp32"
+    #define PLAT_FORM_CODE          "esp_idf"
     #define VERSION                 "v1.0.0"
     #define GET_PRODUCTS_URL        "http://111.59.118.25:18083/software/getallproducts"
     #define GET_PLATFORMS_URL       "http://111.59.118.25:18083/software/GetProductPlatforms"
     #define GET_VERSIONS_URL        "http://111.59.118.25:18083/software/GetPlatformAllVersions"
 
 // --- 本地存储路径 ---
-#define STORAGE_MOUNT_POINT     "/disk"
 #else
     #define LOGIC_URL                 "http://192.168.1.111:8089/my/login"
     #define LOGIC_NAME                "lixiaoxiang"
@@ -43,8 +42,8 @@ extern "C" {
 
     #define DOWNLOAD_URL              "http://192.168.1.111:8089/software/getavailableversion"
     #define DOWNLOAD_CURRENT_URL      "http://192.168.1.111:8089/software/getcurrentversion"
-    #define PRODUCT_CODE              "test_code"
-    #define PLAT_FORM_CODE            "mcu"
+    #define PRODUCT_CODE              "esp32"
+    #define PLAT_FORM_CODE            "esp_idf"
     #define VERSION                   "v1.0.0"
     #define GET_PRODUCTS_URL          "http://192.168.1.111:8089/software/getallproducts"
     #define GET_PLATFORMS_URL         "http://192.168.1.111:8089/software/GetProductPlatforms"

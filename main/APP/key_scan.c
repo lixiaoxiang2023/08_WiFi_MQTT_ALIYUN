@@ -190,13 +190,13 @@ static void ota_update_task(void *arg)
             // ⭐ 2. 开始下载到 U 盘
             if (download_to_usb(g_download_info.url, g_strWriteLocalFileName) == ESP_OK) {
                 ESP_LOGI("MAIN", "下载完成，开始 MD5 校验...");
+                lcd_show_string(30, 190, 260, 16, 16, "MD5 Checking!          ", GREEN);
 
                 // ⭐ 3. 进行 MD5 完整性校验
                 if (verify_file_md5(g_strWriteLocalFileName, g_download_info.md5)) {
                     ESP_LOGI("MAIN", "✅ MD5 校验通过，固件合法！");
-                    lcd_fill(20, 185, 300, 235, WHITE); // 清理
-                    lcd_show_string(30, 190, 260, 16, 16, "MD5 CHECK OK!", GREEN);
-                    lcd_show_string(30, 210, 260, 12, 12, "Firmware is valid.", GRAY);
+                    lcd_show_string(30, 190, 260, 16, 16, "MD5 CHECK OK!        ", GREEN);
+                    lcd_show_string(30, 210, 260, 12, 12, "Firmware is valid.    ", GRAY);
                     // --- 此处可以安全地执行后续 OTA 处理 (如从 U 盘刷机) ---
                     // execute_ota_update_from_usb(g_strWriteLocalFileName);
                     
@@ -222,23 +222,28 @@ static void ota_update_task(void *arg)
     xOtaTaskHandle = NULL; // Clear the task handle as the task is about to delete itself
     vTaskDelete(NULL); // Delete this task
 }
+
+
 esp_err_t run_full_upgrade_chain(const char *token) {
     int64_t product_id = -1;
     int64_t platform_id = -1;
     char target_version_str[64] = {0}; 
-    char final_download_url[512] = {0};
+    char final_download_url[1024] = {0}; // 扩容至 1024，防止 S3 签名 URL 截断
     char file_name[128] = {0};
     char md5_expect[64] = {0};
+    char body_buf[256];
 
-    // --- STEP 1: 获取产品 ID (逻辑不变) ---
+    // --- STEP 1: 获取产品 ID ---
     if (!http_execute_get_request(GET_PRODUCTS_URL, token)) return ESP_FAIL;
     cJSON *root = cJSON_Parse((char*)g_http_resp.buffer);
     if (!root) return ESP_FAIL;
+    
     cJSON *data = cJSON_GetObjectItem(root, "data");
     cJSON *item = NULL;
+    
     cJSON_ArrayForEach(item, data) {
         cJSON *code = cJSON_GetObjectItem(item, "code");
-        if (code && strcmp(code->valuestring, PRODUCT_CODE) == 0) {
+        if (cJSON_IsString(code) && strcmp(code->valuestring, PRODUCT_CODE) == 0) {
             product_id = (int64_t)cJSON_GetObjectItem(item, "id")->valuedouble;
             break;
         }
@@ -246,15 +251,16 @@ esp_err_t run_full_upgrade_chain(const char *token) {
     cJSON_Delete(root);
     if (product_id == -1) { ESP_LOGE("MAIN", "未找到产品: %s", PRODUCT_CODE); return ESP_FAIL; }
 
-    // --- STEP 2: 获取平台 ID (逻辑不变) ---
-    char body_buf[256];
+    // --- STEP 2: 获取平台 ID ---
     snprintf(body_buf, sizeof(body_buf), "{\"id\":%lld}", product_id);
     if (!http_execute_get_with_body(GET_PLATFORMS_URL, token, body_buf)) return ESP_FAIL;
     root = cJSON_Parse((char*)g_http_resp.buffer);
+    if (!root) return ESP_FAIL;
+    
     data = cJSON_GetObjectItem(root, "data");
     cJSON_ArrayForEach(item, data) {
         cJSON *code = cJSON_GetObjectItem(item, "code");
-        if (code && strcmp(code->valuestring, PLAT_FORM_CODE) == 0) {
+        if (cJSON_IsString(code) && strcmp(code->valuestring, PLAT_FORM_CODE) == 0) {
             platform_id = (int64_t)cJSON_GetObjectItem(item, "id")->valuedouble;
             break;
         }
@@ -262,35 +268,28 @@ esp_err_t run_full_upgrade_chain(const char *token) {
     cJSON_Delete(root);
     if (platform_id == -1) { ESP_LOGE("MAIN", "未找到平台: %s", PLAT_FORM_CODE); return ESP_FAIL; }
 
-    // --- STEP 3: 寻找最新版本 (修改点：取 size - 1) ---
+    // --- STEP 3: 寻找最新版本 ---
     snprintf(body_buf, sizeof(body_buf), "{\"id\":%lld}", platform_id);
     if (!http_execute_get_with_body(GET_VERSIONS_URL, token, body_buf)) return ESP_FAIL;
     root = cJSON_Parse((char*)g_http_resp.buffer);
+    if (!root) return ESP_FAIL;
+    
     data = cJSON_GetObjectItem(root, "data");
     int size = cJSON_GetArraySize(data);
-    
     if (size > 0) {
-        // ⭐ 修改点：取 size - 1 即为最新版本
         cJSON *latest = cJSON_GetArrayItem(data, size - 1);
         cJSON *v = cJSON_GetObjectItem(latest, "version");
-        if (v) {
+        if (cJSON_IsString(v)) {
             strncpy(target_version_str, v->valuestring, sizeof(target_version_str)-1);
-            ESP_LOGW("MAIN", "定位到最新版本号: %s", target_version_str);
+            ESP_LOGW("MAIN", "定位到最新版本: %s", target_version_str);
         }
     }
     cJSON_Delete(root);
-    if (strlen(target_version_str) == 0) { ESP_LOGE("MAIN", "版本列表为空或解析失败"); return ESP_FAIL; }
+    if (target_version_str[0] == '\0') { ESP_LOGE("MAIN", "版本列表为空"); return ESP_FAIL; }
 
-    // --- STEP 4: 请求 DOWNLOAD_URL 获取该版本的下载指令 (解析逻辑已修正) ---
+    // --- STEP 4: 获取具体的下载信息 ---
     instrument_config_t instr_config = {0};
-    if (load_instrument_config_from_nvs(&instr_config) != ESP_OK) {
-        ESP_LOGE("MAIN", "无法加载配置，无法构造下载请求");
-        return ESP_FAIL;
-    }
-    if (instr_config.platform_code[0] == '\0' || instr_config.product_code[0] == '\0') {
-        ESP_LOGE("MAIN", "配置中缺少 platform_code 或 product_code");
-        return ESP_FAIL;
-    }
+    if (load_instrument_config_from_nvs(&instr_config) != ESP_OK) return ESP_FAIL;
 
     cJSON *req_root = cJSON_CreateObject();
     cJSON_AddStringToObject(req_root, "platformcode", instr_config.platform_code);
@@ -298,14 +297,12 @@ esp_err_t run_full_upgrade_chain(const char *token) {
     cJSON_AddStringToObject(req_root, "version", target_version_str);
     char *json_body = cJSON_PrintUnformatted(req_root);
     
-    ESP_LOGI("MAIN", "请求下载地址 Body: %s", json_body);
-    bool ret = http_execute_get_with_body(DOWNLOAD_CURRENT_URL, token, json_body);
+    bool ret_url = http_execute_get_with_body(DOWNLOAD_CURRENT_URL, token, json_body);
     free(json_body);
     cJSON_Delete(req_root);
+    if (!ret_url) return ESP_FAIL;
 
-    if (!ret) return ESP_FAIL;
-
-    // 解析最后的下载地址信息 (修正了 files 数组层级)
+    // 解析最后的下载地址信息
     root = cJSON_Parse((char*)g_http_resp.buffer);
     if (!root) return ESP_FAIL;
     cJSON *data_obj = cJSON_GetObjectItem(root, "data");
@@ -317,31 +314,40 @@ esp_err_t run_full_upgrade_chain(const char *token) {
             cJSON *n = cJSON_GetObjectItem(f, "name"); 
             cJSON *m = cJSON_GetObjectItem(f, "md5");
 
-            if (u) strncpy(final_download_url, u->valuestring, sizeof(final_download_url)-1);
-            if (n) strncpy(file_name, n->valuestring, sizeof(file_name)-1);
-            if (m) strncpy(md5_expect, m->valuestring, sizeof(md5_expect)-1);
+            if (cJSON_IsString(u)) strncpy(final_download_url, u->valuestring, sizeof(final_download_url)-1);
+            if (cJSON_IsString(n)) strncpy(file_name, n->valuestring, sizeof(file_name)-1);
+            if (cJSON_IsString(m)) strncpy(md5_expect, m->valuestring, sizeof(md5_expect)-1);
         }
     }
-    cJSON_Delete(root);
+    
+    // ⭐ 核心优化点：在进入下载函数前销毁 cJSON，彻底释放 Heap 内存
+    cJSON_Delete(root); 
 
     // --- STEP 5: 下载与 OTA ---
-    if (strlen(final_download_url) > 0) {
+    if (final_download_url[0] != '\0') {
         char full_path[256];
-        if (strlen(file_name) == 0) snprintf(file_name, sizeof(file_name), "%s_latest.bin", target_version_str);
-        snprintf(full_path, sizeof(full_path), "/disk/%s", file_name);
+        if (file_name[0] == '\0') {
+            snprintf(file_name, sizeof(file_name), "%s_latest.bin", target_version_str);
+        }
+        // 拼接路径，确保 USB 挂载点前缀正确
+        snprintf(full_path, sizeof(full_path), "%s/%s", USB_PATH, file_name);
+        
+        ESP_LOGI("MAIN", "准备下载，目标路径: %s", full_path);
         
         if (download_to_usb(final_download_url, full_path) == ESP_OK) {
             if (verify_file_md5(full_path, md5_expect)) {
-                ESP_LOGW("MAIN", "校验通过，开始升级到最新版本...");
+                ESP_LOGW("MAIN", "MD5 校验成功，开始 OTA 写入...");
                 ota_from_usb(full_path);
                 return ESP_OK;
             } else {
+                ESP_LOGE("MAIN", "MD5 校验不匹配，删除文件");
                 unlink(full_path);
-                ESP_LOGE("MAIN", "MD5 校验失败");
             }
+        } else {
+            ESP_LOGE("MAIN", "download_to_usb 执行失败");
         }
     } else {
-        ESP_LOGE("MAIN", "未能获取有效下载地址");
+        ESP_LOGE("MAIN", "URL 解析为空");
     }
 
     return ESP_FAIL;

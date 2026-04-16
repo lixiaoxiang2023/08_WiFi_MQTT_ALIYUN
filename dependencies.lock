@@ -1,4 +1,9 @@
 dependencies:
+  espressif/esp_lvgl_port:
+    component_hash: b6360960f47b6776462e7092861b3ea66477ffb762a01baa0aecbb3d74cd50f4
+    source:
+      type: service
+    version: 2.7.2
   espressif/esp_tinyusb:
     component_hash: 6a50305bc61c7a361da8c0833642be824e92dacb0a6001719a832a4e96e471bf
     source:
@@ -14,6 +19,11 @@ dependencies:
     source:
       type: idf
     version: 5.1.3
-manifest_hash: ccf753b9ef92c593e7639d7f42f6d205207f3e2971d73401a88adeae7bcb0cb7
+  lvgl/lvgl:
+    component_hash: d7c1ac037ae6e85d94897f807d6e7ba0946a83e720074fc95a4f6241da9f9f53
+    source:
+      type: service
+    version: 8.4.0
+manifest_hash: f71454fc7065c3f73ae2a34a4e6af4d4db4b3f9f2bdf476d6df704f721e7a3bf
 target: esp32s3
 version: 1.0.0
