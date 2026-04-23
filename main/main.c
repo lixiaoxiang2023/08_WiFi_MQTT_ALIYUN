@@ -68,9 +68,9 @@ void setup_ui(void) {
     lv_obj_t * screen = lv_scr_act();
 
     // 1. 创建一个标签 (Label)
-    lv_obj_t * label = lv_label_create(screen);
-    lv_label_set_text(label, "SL-1000 SYSTEM READY");
-    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 20);
+   // lv_obj_t * label = lv_label_create(screen);
+   // lv_label_set_text(label, "SL-1000 SYSTEM READY");
+    //lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 20);
 
     // 2. 创建一个简单的按钮
     lv_obj_t * btn = lv_btn_create(screen);

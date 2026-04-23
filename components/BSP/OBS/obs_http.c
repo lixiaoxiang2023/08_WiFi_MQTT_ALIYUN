@@ -287,11 +287,11 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
         uint32_t last_speed_bytes = local_file_size;
         
         char *buffer = malloc(DL_BUFFER_SIZE);
+        lv_timer_enable(false);
         if (buffer) {
             while (true) {
                 int read_len = esp_http_client_read(client, buffer, DL_BUFFER_SIZE);
                 if (read_len > 0) {
-                    lv_timer_enable(false);
                     fwrite(buffer, 1, read_len, f);
                     total_read_len += read_len;
 

@@ -489,61 +489,50 @@ volatile SystemStatus_t g_sys_status;
 void wifi_background_task(void *pv)
 {
     g_sys_status = SYS_INIT;
+    // 别在这里 create，在 ui_create() 统一创建
     
-    // 创建 LVGL 初始化界面
-    ui_init_screen_create();
-
-    // --- 步骤 1: 基础硬件 ---
-    ui_update_init_status("Hardware Initializing...", 20, lv_palette_main(LV_PALETTE_BLUE));
+    // --- 步骤 1 ---
+    ui_set_status("Hardware Initializing..."); 
     esp_wifi_set_ps(WIFI_PS_NONE);
     vTaskDelay(pdMS_TO_TICKS(500));
 
-    // --- 步骤 2: WiFi 配网 ---
+    // --- 步骤 2 ---
     g_sys_status = SYS_WIFI_WAIT;
-    ui_update_init_status("Waiting for WiFi...", 40, lv_palette_main(LV_PALETTE_AMBER));
-    
+    ui_set_status("Waiting for WiFi...");
     wifi_smartconfig_sta();
     wifi_config_wait_connected();
     
-    ui_update_init_status("WiFi Connected!", 60, lv_palette_main(LV_PALETTE_GREEN));
+    ui_set_status("WiFi Connected!");
     vTaskDelay(pdMS_TO_TICKS(500));
 
-    // --- 步骤 3: SNTP 时间同步 ---
-    ui_update_init_status("Syncing Network Time...", 75, lv_palette_main(LV_PALETTE_CYAN));
+    // --- 步骤 3 ---
+    ui_set_status("Syncing Network Time...");
     initialize_sntp_v5();
 
-    // --- 步骤 4: 云端登录与数据同步 ---
+    // --- 步骤 4 ---
     g_sys_status = SYS_SYNCING;
-    int retry_count = 3;
     bool sync_success = false;
-
-    while (retry_count-- > 0 && !sync_success) {
+    for (int i = 3; i > 0 && !sync_success; i--) {
         char msg[32];
-        snprintf(msg, sizeof(msg), "Cloud Syncing (%d)...", retry_count + 1);
-        ui_update_init_status(msg, 85, lv_palette_main(LV_PALETTE_INDIGO));
+        snprintf(msg, sizeof(msg), "Cloud Syncing (%d)...", i);
+        ui_set_status(msg); // 统一发消息
 
         if (http_login(&g_strResp)) {
             if (http_get_all_products(g_strResp.token)) {
                 sync_success = true;
             }
         }
-        if (!sync_success && retry_count > 0) vTaskDelay(pdMS_TO_TICKS(2000));
+        if (!sync_success) vTaskDelay(pdMS_TO_TICKS(2000));
     }
 
-    // --- 步骤 5: 完成或失败 ---
+    // --- 步骤 5 ---
     if (sync_success) {
-        ui_update_init_status("SYSTEM READY", 100, lv_palette_main(LV_PALETTE_GREEN));
-        vTaskDelay(pdMS_TO_TICKS(1000));
         g_sys_status = SYS_READY; 
-        ui_set_status("System ready");
-        ui_show_home();
-        
-        // 此处跳转主页逻辑
-        // ui_goto_homepage(); 
+        // 关键：只发一个显示主页的消息，不要在这里 Delay
+        ui_show_wifi(); 
     } else {
         g_sys_status = SYS_ERROR;
-        ui_update_init_status("INIT FAILED!", 100, lv_palette_main(LV_PALETTE_RED));
-        ui_set_status("Initialization failed");
+        ui_set_status("INIT FAILED!");
     }
     
     vTaskDelete(NULL); 

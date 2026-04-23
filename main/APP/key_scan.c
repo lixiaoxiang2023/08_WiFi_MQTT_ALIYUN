@@ -94,7 +94,7 @@ static void ota_update_task(void *arg)
             snprintf(buf, sizeof(buf), "%s/%s", USB_PATH, file_name);
             strcpy(g_strWriteLocalFileName, buf);
 
-            ui_set_ota("DOWNLOADING...");
+            ui_set_ota("LOADING...");
             ui_show_download();
 
             // ⭐ 2. 下载
@@ -265,13 +265,17 @@ esp_err_t run_full_upgrade_chain(const char *token) {
         ESP_LOGI("MAIN", "准备下载，目标路径: %s", full_path);
         
         if (download_to_usb(final_download_url, full_path) == ESP_OK) {
+            lv_timer_enable(false);
+
             if (verify_file_md5(full_path, md5_expect)) {
                 ESP_LOGW("MAIN", "MD5 校验成功，开始 OTA 写入...");
                 ota_from_usb(full_path);
+                lv_timer_enable(true);
                 return ESP_OK;
             } else {
                 ESP_LOGE("MAIN", "MD5 校验不匹配，删除文件");
                 unlink(full_path);
+                lv_timer_enable(true);
             }
         } else {
             ESP_LOGE("MAIN", "download_to_usb 执行失败");
