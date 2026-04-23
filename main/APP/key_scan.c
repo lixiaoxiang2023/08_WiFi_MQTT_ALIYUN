@@ -25,6 +25,8 @@ static wifi_user_mode_t g_wifi_user_mode = WIFI_MODE_WEB_CONFIG;
 void wifi_switch_mode(void)
 {
     ui_set_status("System Switching...");
+    ui_set_wifi_connected(false);
+    ui_show_wifi();
 
     esp_wifi_stop();
 
@@ -36,6 +38,8 @@ void wifi_switch_mode(void)
         ui_set_status("STA ONLY MODE");
         ui_set_ssid((char *)conf.sta.ssid);
         ui_set_ip("Waiting for IP...");
+        ui_set_web_ip("--");
+        ui_set_wifi_mode(false);
 
         web_prov_stop();
         esp_wifi_set_mode(WIFI_MODE_STA);
@@ -45,7 +49,9 @@ void wifi_switch_mode(void)
     {
         ui_set_status("AP + STA MODE");
         ui_set_ssid("ESP32_Config");
-        ui_set_ip("192.168.4.1");
+        ui_set_ip("Waiting for STA IP...");
+        ui_set_web_ip("192.168.4.1");
+        ui_set_wifi_mode(true);
 
         esp_wifi_set_mode(WIFI_MODE_APSTA);
         web_prov_start();
@@ -70,12 +76,12 @@ static void ota_update_task(void *arg)
 
         ESP_LOGI("MAIN", "登录成功, token=%s", resp.token);
 
-        ui_ota_update("LOGIN OK");
+        ui_set_ota("LOGIN OK");
 
         // ⭐ 1. 获取版本
         if (http_get_version(resp.token)) {
 
-            ui_ota_update("GET VERSION OK");
+            ui_set_ota("GET VERSION OK");
 
             char buf[256] = {0};
             const char *file_name = g_download_info.file_name;
@@ -88,34 +94,41 @@ static void ota_update_task(void *arg)
             snprintf(buf, sizeof(buf), "%s/%s", USB_PATH, file_name);
             strcpy(g_strWriteLocalFileName, buf);
 
-            ui_ota_update("DOWNLOADING...");
+            ui_set_ota("DOWNLOADING...");
+            ui_show_download();
 
             // ⭐ 2. 下载
             if (download_to_usb(g_download_info.url, g_strWriteLocalFileName) == ESP_OK) {
 
                 ESP_LOGI("MAIN", "下载完成，开始 MD5 校验...");
 
-                ui_ota_update("MD5 CHECKING...");
+                ui_set_ota("MD5 CHECKING...");
+                lv_timer_enable(false);
+                vTaskDelay(pdMS_TO_TICKS(1000));
 
                 // ⭐ 3. MD5 校验
                 if (verify_file_md5(g_strWriteLocalFileName, g_download_info.md5)) {
+                vTaskDelay(pdMS_TO_TICKS(1000));
+                lv_timer_enable(true);
 
                     ESP_LOGI("MAIN", "MD5 校验通过");
 
-                    ui_ota_update("MD5 OK");
+                    ui_set_ota("MD5 OK");
 
                     vTaskDelay(pdMS_TO_TICKS(500));
 
-                    ui_ota_update("READY FOR OTA");
+                    ui_set_ota("READY FOR OTA");
 
                     // 👉 真正 OTA
                     // execute_ota_update_from_usb(g_strWriteLocalFileName);
 
                 } else {
+                vTaskDelay(pdMS_TO_TICKS(500));
+                lv_timer_enable(true);
 
                     ESP_LOGE("MAIN", "MD5 校验失败");
 
-                    ui_ota_update("MD5 FAILED");
+                    ui_set_ota("MD5 FAILED");
 
                     vTaskDelay(pdMS_TO_TICKS(500));
 
@@ -125,14 +138,14 @@ static void ota_update_task(void *arg)
             } else {
                 ESP_LOGE("MAIN", "下载失败");
 
-                ui_ota_update("DOWNLOAD FAILED");
+                ui_set_ota("DOWNLOAD FAILED");
             }
         }
 
     } else {
         ESP_LOGE("MAIN", "登录失败");
 
-        ui_ota_update("LOGIN FAILED");
+        ui_set_ota("LOGIN FAILED");
     }
 
     printf("OTA update task finished.\n");

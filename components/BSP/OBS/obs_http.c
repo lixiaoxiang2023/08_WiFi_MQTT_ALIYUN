@@ -19,9 +19,11 @@
 #include "freertos/semphr.h"
 #include "lcd.h"
 #include "obs_http.h"
+#include "lvgl_manager.h"
 #include "mbedtls/md5.h" // 必须包含这个头文件
 #include "web_server_handlers.h" // 确保包含新的 NVS 配置处理器头文件
 #include <sys/stat.h> // 必须引入此头文件获取文件信息
+#include "lvgl_manager.h"
 
 #define OBS_TAG "OBS_HTTP"
 #define OBS_MAX_RETRY 3
@@ -31,109 +33,10 @@
 
 
 http_response_t g_http_resp;
-/* ===================== CA证书 ===================== */
 
-// 将CA证书内容以字符串形式嵌入
-// const char ca_cert[] = 
-// "-----BEGIN CERTIFICATE-----\n"
-// "MIIDXzCCAkegAwIBAgILBAAAAAABIVhTCKIwDQYJKoZIhvcNAQELBQAwTDEgMB4G\n"
-// "A1UECxMXR2xvYmFsU2lnbiBSb290IENBIC0gUjMxEzARBgNVBAoTCkdsb2JhbFNp\n"
-// "Z24xEzARBgNVBAMTCkdsb2JhbFNpZ24wHhcNMDkwMzE4MTAwMDAwWhcNMjkwMzE4\n"
-// "MTAwMDAwWjBMMSAwHgYDVQQLExdHbG9iYWxTaWduIFJvb3QgQ0EgLSBSMzETMBEG\n"
-// "A1UEChMKR2xvYmFsU2lnbjETMBEGA1UEAxMKR2xvYmFsU2lnbjCCASIwDQYJKoZI\n"
-// "hvcNAQEBBQADggEPADCCAQoCggEBAMwldpB5BngiFvXAg7aEyiie/QV2EcWtiHL8\n"
-// "RgJDx7KKnQRfJMsuS+FggkbhUqsMgUdwbN1k0ev1LKMPgj0MK66X17YUhhB5uzsT\n"
-// "gHeMCOFJ0mpiLx9e+pZo34knlTifBtc+ycsmWQ1z3rDI6SYOgxXG71uL0gRgykmm\n"
-// "KPZpO/bLyCiR5Z2KYVc3rHQU3HTgOu5yLy6c+9C7v/U9AOEGM+iCK65TpjoWc4zd\n"
-// "QQ4gOsC0p6Hpsk+QLjJg6VfLuQSSaGjlOCZgdbKfd/+RFO+uIEn8rUAVSNECMWEZ\n"
-// "XriX7613t2Saer9fwRPvm2L7DWzgVGkWqQPabumDk3F2xmmFghcCAwEAAaNCMEAw\n"
-// "DgYDVR0PAQH/BAQDAgEGMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFI/wS3+o\n"
-// "LkUkrk1Q+mOai97i3Ru8MA0GCSqGSIb3DQEBCwUAA4IBAQBLQNvAUKr+yAzv95ZU\n"
-// "RUm7lgAJQayzE4aGKAczymvmdLm6AC2upArT9fHxD4q/c2dKg8dEe3jgr25sbwMp\n"
-// "jjM5RcOO5LlXbKr8EpbsU8Yt5CRsuZRj+9xTaGdWPoO4zzUhw8lo/s7awlOqzJCK\n"
-// "6fBdRoyV3XpYKBovHd7NADdBj+1EbddTKJd+82cEHhXXipa0095MJ6RMG3NzdvQX\n"
-// "mcIfeg7jLQitChws/zyrVQ4PkX4268NXSb7hLi18YIvDQVETI53O9zJrlAGomecs\n"
-// "Mx86OyXShkDOOyyGeMlhLxS67ttVb9+E7gUJTb0o2HLO02JQZR7rkpeDMdmztcpH\n"
-// "WD9f\n"
-// "-----END CERTIFICATE-----\n"
-// "-----BEGIN CERTIFICATE-----\n"
-// "MIIFgzCCA2ugAwIBAgIORea7A4Mzw4VlSOb/RVEwDQYJKoZIhvcNAQEMBQAwTDEg\n"
-// "MB4GA1UECxMXR2xvYmFsU2lnbiBSb290IENBIC0gUjYxEzARBgNVBAoTCkdsb2Jh\n"
-// "bFNpZ24xEzARBgNVBAMTCkdsb2JhbFNpZ24wHhcNMTQxMjEwMDAwMDAwWhcNMzQx\n"
-// "MjEwMDAwMDAwWjBMMSAwHgYDVQQLExdHbG9iYWxTaWduIFJvb3QgQ0EgLSBSNjET\n"
-// "MBEGA1UEChMKR2xvYmFsU2lnbjETMBEGA1UEAxMKR2xvYmFsU2lnbjCCAiIwDQYJ\n"
-// "KoZIhvcNAQEBBQADggIPADCCAgoCggIBAJUH6HPKZvnsFMp7PPcNCPG0RQssgrRI\n"
-// "xutbPK6DuEGSMxSkb3/pKszGsIhrxbaJ0cay/xTOURQh7ErdG1rG1ofuTToVBu1k\n"
-// "ZguSgMpE3nOUTvOniX9PeGMIyBJQbUJmL025eShNUhqKGoC3GYEOfsSKvGRMIRxD\n"
-// "aNc9PIrFsmbVkJq3MQbFvuJtMgamHvm566qjuL++gmNQ0PAYid/kD3n16qIfKtJw\n"
-// "LnvnvJO7bVPiSHyMEAc4/2ayd2F+4OqMPKq0pPbzlUoSB239jLKJz9CgYXfIWHSw\n"
-// "1CM69106yqLbnQneXUQtkPGBzVeS+n68UARjNN9rkxi+azayOeSsJDa38O+2HBNX\n"
-// "k7besvjihbdzorg1qkXy4J02oW9UivFyVm4uiMVRQkQVlO6jxTiWm05OWgtH8wY2\n"
-// "SXcwvHE35absIQh1/OZhFj931dmRl4QKbNQCTXTAFO39OfuD8l4UoQSwC+n+7o/h\n"
-// "bguyCLNhZglqsQY6ZZZZwPA1/cnaKI0aEYdwgQqomnUdnjqGBQCe24DWJfncBZ4n\n"
-// "WUx2OVvq+aWh2IMP0f/fMBH5hc8zSPXKbWQULHpYT9NLCEnFlWQaYw55PfWzjMpY\n"
-// "rZxCRXluDocZXFSxZba/jJvcE+kNb7gu3GduyYsRtYQUigAZcIN5kZeR1Bonvzce\n"
-// "MgfYFGM8KEyvAgMBAAGjYzBhMA4GA1UdDwEB/wQEAwIBBjAPBgNVHRMBAf8EBTAD\n"
-// "AQH/MB0GA1UdDgQWBBSubAWjkxPioufi1xzWx/B/yGdToDAfBgNVHSMEGDAWgBSu\n"
-// "bAWjkxPioufi1xzWx/B/yGdToDANBgkqhkiG9w0BAQwFAAOCAgEAgyXt6NH9lVLN\n"
-// "nsAEoJFp5lzQhN7craJP6Ed41mWYqVuoPId8AorRbrcWc+ZfwFSY1XS+wc3iEZGt\n"
-// "Ixg93eFyRJa0lV7Ae46ZeBZDE1ZXs6KzO7V33EByrKPrmzU+sQghoefEQzd5Mr61\n"
-// "55wsTLxDKZmOMNOsIeDjHfrYBzN2VAAiKrlNIC5waNrlU/yDXNOd8v9EDERm8tLj\n"
-// "vUYAGm0CuiVdjaExUd1URhxN25mW7xocBFymFe944Hn+Xds+qkxV/ZoVqW/hpvvf\n"
-// "cDDpw+5CRu3CkwWJ+n1jez/QcYF8AOiYrg54NMMl+68KnyBr3TsTjxKM4kEaSHpz\n"
-// "oHdpx7Zcf4LIHv5YGygrqGytXm3ABdJ7t+uA/iU3/gKbaKxCXcPu9czc8FB10jZp\n"
-// "nOZ7BN9uBmm23goJSFmH63sUYHpkqmlD75HHTOwY3WzvUy2MmeFe8nI+z1TIvWfs\n"
-// "pA9MRf/TuTAjB0yPEL+GltmZWrSZVxykzLsViVO6LAUP5MSeGbEYNNVMnbrt9x+v\n"
-// "JJUEeKgDu+6B5dpffItKoZB0JaezPkvILFa9x8jvOOJckvB595yEunQtYQEgfn7R\n"
-// "8k8HWV+LLUNS60YMlOH1Zkd5d9VUWx+tJDfLRVpOoERIyNiwmcUVhAn21klJwGW4\n"
-// "5hpxbqCo8YLoRT5s1gLXCmeDBVrJpBA=\n"
-// "-----END CERTIFICATE-----\n"
-// "-----BEGIN CERTIFICATE-----\n"
-// "MIIFWjCCA0KgAwIBAgISEdK7udcjGJ5AXwqdLdDfJWfRMA0GCSqGSIb3DQEBDAUA\n"
-// "MEYxCzAJBgNVBAYTAkJFMRkwFwYDVQQKExBHbG9iYWxTaWduIG52LXNhMRwwGgYD\n"
-// "VQQDExNHbG9iYWxTaWduIFJvb3QgUjQ2MB4XDTE5MDMyMDAwMDAwMFoXDTQ2MDMy\n"
-// "MDAwMDAwMFowRjELMAkGA1UEBhMCQkUxGTAXBgNVBAoTEEdsb2JhbFNpZ24gbnYt\n"
-// "c2ExHDAaBgNVBAMTE0dsb2JhbFNpZ24gUm9vdCBSNDYwggIiMA0GCSqGSIb3DQEB\n"
-// "AQUAA4ICDwAwggIKAoICAQCsrHQy6LNl5brtQyYdpokNRbopiLKkHWPd08EsCVeJ\n"
-// "OaFV6Wc0dwxu5FUdUiXSE2te4R2pt32JMl8Nnp8semNgQB+msLZ4j5lUlghYruQG\n"
-// "vGIFAha/r6gjA7aUD7xubMLL1aa7DOn2wQL7Id5m3RerdELv8HQvJfTqa1VbkNud\n"
-// "316HCkD7rRlr+/fKYIje2sGP1q7Vf9Q8g+7XFkyDRTNrJ9CG0Bwta/OrffGFqfUo\n"
-// "0q3v84RLHIf8E6M6cqJaESvWJ3En7YEtbWaBkoe0G1h6zD8K+kZPTXhc+CtI4wSE\n"
-// "y132tGqzZfxCnlEmIyDLPRT5ge1lFgBPGmSXZgjPjHvjK8Cd+RTyG/FWaha/LIWF\n"
-// "zXg4mutCagI0GIMXTpRW+LaCtfOW3T3zvn8gdz57GSNrLNRyc0NXfeD412lPFzYE\n"
-// "+cCQYDdF3uYM2HSNrpyibXRdQr4G9dlkbgIQrImwTDsHTUB+JMWKmIJ5jqSngiCN\n"
-// "I/onccnfxkF0oE32kRbcRoxfKWMxWXEM2G/CtjJ9++ZdU6Z+Ffy7dXxd7Pj2Fxzs\n"
-// "x2sZy/N78CsHpdlseVR2bJ0cpm4O6XkMqCNqo98bMDGfsVR7/mrLZqrcZdCinkqa\n"
-// "ByFrgY/bxFn63iLABJzjqls2k+g9vXqhnQt2sQvHnf3PmKgGwvgqo6GDoLclcqUC\n"
-// "4wIDAQABo0IwQDAOBgNVHQ8BAf8EBAMCAYYwDwYDVR0TAQH/BAUwAwEB/zAdBgNV\n"
-// "HQ4EFgQUA1yrc4GHqMywptWU4jaWSf8FmSwwDQYJKoZIhvcNAQEMBQADggIBAHx4\n"
-// "7PYCLLtbfpIrXTncvtgdokIzTfnvpCo7RGkerNlFo048p9gkUbJUHJNOxO97k4Vg\n"
-// "JuoJSOD1u8fpaNK7ajFxzHmuEajwmf3lH7wvqMxX63bEIaZHU1VNaL8FpO7XJqti\n"
-// "2kM3S+LGteWygxk6x9PbTZ4IevPuzz5i+6zoYMzRx6Fcg0XERczzF2sUyQQCPtIk\n"
-// "pnnpHs6i58FZFZ8d4kuaPp92CC1r2LpXFNqD6v6MVenQTqnMdzGxRBF6XLE+0xRF\n"
-// "FRhiJBPSy03OXIPBNvIQtQ6IbbjhVp+J3pZmOUdkLG5NrmJ7v2B0GbhWrJKsFjLt\n"
-// "rWhV/pi60zTe9Mlhww6G9kuEYO4Ne7UyWHmRVSyBQ7N0H3qqJZ4d16GLuc1CLgSk\n"
-// "ZoNNiTW2bKg2SnkheCLQQrzRQDGQob4Ez8pn7fXwgNNgyYMqIgXQBztSvwyeqiv5\n"
-// "u+YfjyW6hY0XHgL+XVAEV8/+LbzvXMAaq7afJMbfc2hIkCwU9D9SGuTSyxTDYWnP\n"
-// "4vkYxboznxSjBF25cfe1lNj2M8FawTSLfJvdkzrnE6JwYZ+vj+vYxXX4M2bUdGc6\n"
-// "N3ec592kD3ZDZopD8p/7DEJ4Y9HiD2971KE9dJeFt0g5QdYg/NA6s/rob8SKunE3\n"
-// "vouXsXgxT7PntgMTzlSdriVZzH81Xwj3QEUxeCp6\n"
-// "-----END CERTIFICATE-----\n"
-// ;
-
-/* ===== CA PEM embedded symbols ===== */
 extern const uint8_t _binary_huaweicloud_iot_root_ca_list_pem_start[];
 extern const uint8_t _binary_huaweicloud_iot_root_ca_list_pem_end[];
-typedef enum {
-    LVGL_MSG_SET_STATUS = 1,
-    LVGL_MSG_SET_SSID,
-    LVGL_MSG_SET_IP,
-    LVGL_MSG_SET_MODE,   // ❗这个没处理
-    LVGL_MSG_SET_OTA_TEXT,
-    LVGL_MSG_SET_PROGRESS,
-    LVGL_MSG_DOWNLOAD_PROGRESS
-} lvgl_msg_type_t;
-/* ===================== 状态结构 ===================== */
+
 typedef struct {
     FILE *fp;
     size_t content_length;
@@ -143,17 +46,6 @@ typedef struct {
     bool success;
 } obs_http_state_t;
 
-typedef struct {
-    int percentage;
-    float speed_kb;
-    int eta_min;
-    int eta_sec;
-    char status[32];
-} download_ui_msg_t;
-typedef struct {
-    lvgl_msg_type_t type;
-    char text[64];
-} lvgl_msg_t;
 
 static obs_http_state_t g_state;
 
@@ -292,29 +184,17 @@ static void obs_state_reset(void)
 {
     memset(&g_state, 0, sizeof(g_state));
 }
-extern QueueHandle_t lvgl_queue;
+/* download progress is pushed through lvgl_manager.h */
 
-static void ui_push_download(int percent, float speed, int eta_min, int eta_sec)
-{
-    download_ui_msg_t temp_msg; // 栈上的临时变量
-    temp_msg.percentage = percent;
-    temp_msg.speed_kb = speed;
-    temp_msg.eta_min = eta_min;
-    temp_msg.eta_sec = eta_sec;
-
-    lvgl_msg_t lv_msg = {0};
-    lv_msg.type = LVGL_MSG_DOWNLOAD_PROGRESS;
-
-    // ⭐ 拷贝结构体内容到消息中
-    memcpy(lv_msg.text, &temp_msg, sizeof(download_ui_msg_t)); 
-
-    xQueueSend(lvgl_queue, &lv_msg, 0);
-}
 
 /* ===================== 下载 ===================== */
 
 esp_err_t download_to_usb(const char *url, const char *filename) {
     if (url == NULL || filename == NULL) return ESP_ERR_INVALID_ARG;
+   vTaskDelay(pdMS_TO_TICKS(1000));
+
+   lv_timer_enable(false);
+   vTaskDelay(pdMS_TO_TICKS(100));
 
     // --- 1. 获取本地已下载的大小 ---
     long local_file_size = 0;
@@ -323,14 +203,19 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
         local_file_size = st.st_size;
         ESP_LOGI("DW", "Detect local file: %ld bytes", local_file_size);
     }
+    lv_timer_enable(true);
 
     // --- 2. UI 初始化 ---
     const char *short_name = strrchr(filename, '/');
     short_name = (short_name == NULL) ? filename : (short_name + 1);
 
     ESP_LOGI("DW", "filename:%s", short_name);
-    ui_push_download(0, 0.0f, 0, 0); // 初始化UI显示
+    ui_set_download_info(short_name, (uint32_t)((local_file_size > 0) ? local_file_size : 0));
+    ui_show_download();
+    ui_push_download(0, 0.0f, 0, 0,0,0); // 初始化UI显示
     // --- 3. 打开文件 ---
+    lv_timer_enable(false);
+
     FILE *f = fopen(filename, "ab");
     if (f == NULL) {
         ESP_LOGE("DW", "无法打开文件: %s, 原因: %s", filename, strerror(errno));
@@ -393,6 +278,8 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
         skip_download = true; 
     }
 
+    ui_set_download_info(short_name, (uint32_t)((total_content_length > 0) ? total_content_length : local_file_size));
+
     // --- 6. 数据接收 ---
     int total_read_len = local_file_size;
     if (!skip_download) {
@@ -404,6 +291,7 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
             while (true) {
                 int read_len = esp_http_client_read(client, buffer, DL_BUFFER_SIZE);
                 if (read_len > 0) {
+                    lv_timer_enable(false);
                     fwrite(buffer, 1, read_len, f);
                     total_read_len += read_len;
 
@@ -431,7 +319,9 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
 
                         if (percentage != last_percentage) {
                             last_percentage = percentage;
-                            ui_push_download(percentage, instant_speed, eta_min, eta_sec); // 更新UI显示
+                           // lv_timer_enable(true);
+                          //  ui_push_download(percentage, instant_speed, eta_min, eta_sec,0,0); // 更新UI显示
+                          //  lv_timer_enable(false);
                         }
                         last_speed_bytes = total_read_len;
                         last_speed_time = now_time;
@@ -452,6 +342,9 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
     fsync(fileno(f)); 
     fclose(f);
     esp_http_client_cleanup(client);
+
+    lv_timer_enable(true);
+    lv_tick_inc(0);
     if (is_done) {
         return ESP_OK;
     } else {

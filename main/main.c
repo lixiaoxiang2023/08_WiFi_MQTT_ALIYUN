@@ -37,7 +37,7 @@
 static const char *TAG = "MAIN";
 i2c_obj_t i2c0_master;
 QueueHandle_t lvgl_queue = NULL;
-
+SemaphoreHandle_t global_spi2_mux = NULL;
 void print_mem_info(const char *tag)
 {
     ESP_LOGI(tag,
@@ -89,6 +89,9 @@ void app_main(void)
     esp_err_t ret;
     char logo_str[64]= {0};
     lvgl_queue = xQueueCreate(10, sizeof(lvgl_msg_t));
+    if (global_spi2_mux == NULL) {
+        global_spi2_mux = xSemaphoreCreateRecursiveMutex();
+    }
     ret = nvs_flash_init();
      //   ESP_ERROR_CHECK(nvs_flash_erase());
 
@@ -121,7 +124,7 @@ void app_main(void)
     ESP_LOGI("MAIN", "soft version: %s",FW_VERSION);
     tud_usb_flash();
     firmware_storage_check(NULL);
-
+    ui_create();
     /* ================= 本地任务 ================= */
     //xTaskCreate(mem_monitor_task, "mem_mon", 4096, NULL, 5, NULL);
     // xTaskCreatePinnedToCore(
@@ -133,16 +136,16 @@ void app_main(void)
     //     NULL,
     //     1
     // );
+    xTaskCreatePinnedToCore(
+        usb_copy_task,
+        "usb_copy",
+        4096,
+        NULL,
+        4,
+        NULL,
+        1
+    );
 
-    // xTaskCreatePinnedToCore(
-    //     usb_copy_task,
-    //     "usb_copy",
-    //     4096,
-    //     NULL,
-    //     4,
-    //     NULL,
-    //     1
-    // );
     //xTaskCreate(key_scan_task, "key_scan_task", 4* 1024, NULL, 5, NULL);
     // 将 key_scan_task 也固定到核心 1
     xTaskCreatePinnedToCore(
@@ -166,9 +169,9 @@ void app_main(void)
     ota_queue = xQueueCreate(1, sizeof(ota_msg_t));
 
     // 2. 创建守护任务（常驻内存）
-  //  xTaskCreate(ota_daemon_task, "ota_daemon", 8192, NULL, 5, NULL);
+    xTaskCreate(ota_daemon_task, "ota_daemon", 8192, NULL, 5, NULL);
 
-      xTaskCreatePinnedToCore(
+    xTaskCreatePinnedToCore(
         lvgl_task,
         "lvgl_task",
         4096,
@@ -177,4 +180,5 @@ void app_main(void)
         NULL,
         1
     );
+
 }

@@ -16,6 +16,7 @@
 #include "esp_mac.h"
 #include "web_server_handlers.h"
 #include"key_scan.h"
+#include "lvgl_manager.h"
 
 #define WIFI_CONNECT_TIMEOUT_MS 8000   // 8秒超时
 #define WIFI_CONNECT_RETRY_MAX 3        // STA 最大重试次数
@@ -69,6 +70,10 @@ void web_prov_start(void)
 
     s_prov_mode = WIFI_PROV_WEB;
     s_ap_config_mode = true;
+    ui_set_wifi_mode(true);
+    ui_set_web_ip("192.168.4.1");
+    ui_set_ip("Waiting for STA IP...");
+    ui_show_wifi();
     wifi_config_t ap_cfg = {
         .ap = {
             .ssid = "ESP32_Config",
@@ -119,6 +124,8 @@ static void event_handler(void *arg,
 
         case WIFI_EVENT_STA_DISCONNECTED:
             ESP_LOGW(TAG, "WiFi disconnected");
+            ui_set_wifi_connected(false);
+            ui_set_status("WiFi disconnected");
 
             if(s_retry_count < WIFI_CONNECT_RETRY_MAX){
                 s_retry_count++;
@@ -150,6 +157,12 @@ static void event_handler(void *arg,
     }
     else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ESP_LOGI(TAG, "Got IP");
+        ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
+        char ip_buf[20];
+        snprintf(ip_buf, sizeof(ip_buf), IPSTR, IP2STR(&event->ip_info.ip));
+        ui_set_ip(ip_buf);
+        ui_set_wifi_connected(true);
+        ui_set_status("WiFi Connected");
       //  smartconfig_stop();
         s_sta_connecting = false;
         s_retry_count = 0;
@@ -198,6 +211,9 @@ esp_err_t wifi_apply_config(const char *ssid, const char *password)
 
     s_ap_config_mode = false;     // 🔓 解锁 STA
     s_sta_connecting = true;
+    ui_set_ssid(ssid);
+    ui_set_status("Connecting WiFi...");
+    ui_set_wifi_connected(false);
 
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &cfg));
 
@@ -250,6 +266,8 @@ esp_err_t wifi_smartconfig_sta(void)
     if (ret == ESP_OK && strlen((char *)wifi_cfg.sta.ssid) > 0) {
 
         ESP_LOGI(TAG, "Found saved WiFi: %s", wifi_cfg.sta.ssid);
+        ui_set_wifi_mode(false);
+        ui_set_ssid((char *)wifi_cfg.sta.ssid);
 
         s_prov_mode = WIFI_PROV_NONE;
         s_retry_count = 0;
@@ -418,6 +436,10 @@ static lv_obj_t *ui_status_label;
 
 void ui_init_screen_create(void)
 {
+    ui_show_page(UI_PAGE_BOOT);
+    ui_set_status("Power-on initialization...");
+    return;
+
     if (lvgl_port_lock(0)) {
         ui_init_screen = lv_obj_create(NULL);
         lv_obj_set_style_bg_color(ui_init_screen, lv_palette_main(LV_PALETTE_BLUE_GREY), 0);
@@ -450,6 +472,11 @@ void ui_init_screen_create(void)
 // 供后台任务调用的更新函数（线程安全）
 void ui_update_init_status(const char *text, int progress, lv_color_t color)
 {
+    (void)progress;
+    (void)color;
+    ui_set_status(text);
+    return;
+
     if (lvgl_port_lock(0)) {
         lv_label_set_text(ui_status_label, text);
         lv_arc_set_value(ui_arc_loader, progress);
@@ -508,12 +535,15 @@ void wifi_background_task(void *pv)
         ui_update_init_status("SYSTEM READY", 100, lv_palette_main(LV_PALETTE_GREEN));
         vTaskDelay(pdMS_TO_TICKS(1000));
         g_sys_status = SYS_READY; 
+        ui_set_status("System ready");
+        ui_show_home();
         
         // 此处跳转主页逻辑
         // ui_goto_homepage(); 
     } else {
         g_sys_status = SYS_ERROR;
         ui_update_init_status("INIT FAILED!", 100, lv_palette_main(LV_PALETTE_RED));
+        ui_set_status("Initialization failed");
     }
     
     vTaskDelete(NULL); 

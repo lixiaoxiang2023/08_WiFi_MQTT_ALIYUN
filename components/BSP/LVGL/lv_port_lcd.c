@@ -17,9 +17,11 @@ static const struct {
     {0x36, {0x00}, 1},
     {0x3A, {0x65}, 1},
     {0X21, {0}, 0x80},
-    {0x29, {0}, 0x80},
+    {0x29, {0}, 0x80},   
     {0, {0}, 0xff} // 结束标志
 };
+
+
 lv_disp_t * lv_port_lcd_init(void)
 {
     esp_lcd_panel_io_handle_t io_handle = NULL;

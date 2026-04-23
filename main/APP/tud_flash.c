@@ -15,6 +15,7 @@
 #include "driver/spi_common.h"
 #include "spi_sdcard.h"
 #include "spi_sdcard.h"
+#include "lvgl_manager.h"
 static const char *TAG = "usb_msc";
 const char *disk_path = "/0:";                /* TF卡的路径 (SPI模式) */
 static uint8_t s_pdrv = 0;                      /* 用于识别驱动器的物理驱动器 */
@@ -22,6 +23,10 @@ static int s_disk_block_size = 0;               /* 磁盘块的大小 */
 #define LOGICAL_DISK_NUM        1               /* 磁盘个数 */
 static bool ejected[LOGICAL_DISK_NUM] = {true}; /* 弹出状态 */
 __usbdev g_usbdev;                              /* USB控制器 */
+
+
+// 封装一个简单的加锁宏，带 100ms 超时，防止死锁
+
 //--------------------------------------------------------------------+
 // 以下是USB回调函数，一般用来判断连接过程
 //--------------------------------------------------------------------+
@@ -40,6 +45,7 @@ void tud_mount_cb(void)
     }
 
     g_usbdev.status |= 0x01;
+    ui_set_usb_connected(true);
 
     ESP_LOGI(__func__, "");
 }
@@ -51,6 +57,7 @@ void tud_mount_cb(void)
  */
 void tud_umount_cb(void)
 {
+    ui_set_usb_connected(false);
     ESP_LOGW(__func__, "");
 }
 
@@ -62,6 +69,7 @@ void tud_umount_cb(void)
 void tud_suspend_cb(bool remote_wakeup_en)
 {
     g_usbdev.status &= 0x00;
+    ui_set_usb_connected(false);
     ESP_LOGW(__func__, "");
 }
 
@@ -72,6 +80,7 @@ void tud_suspend_cb(bool remote_wakeup_en)
  */
 void tud_resume_cb(void)
 {
+    ui_set_usb_connected(true);
     ESP_LOGW(__func__, "");
 }
 
@@ -269,17 +278,14 @@ bool tud_msc_start_stop_cb(uint8_t lun, uint8_t power_condition, bool start, boo
  */
 int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void *buffer, uint32_t bufsize)
 {
-    ESP_LOGD(__func__, "");
-
-    if (lun >= LOGICAL_DISK_NUM)
-    {
-        ESP_LOGE(__func__, "invalid lun number %u", lun);
-        return 0;
-    }
+    if (lun >= LOGICAL_DISK_NUM) return 0;
 
     const uint32_t block_count = bufsize / s_disk_block_size;
+    lv_timer_enable(false);
+    vTaskDelay(pdMS_TO_TICKS(10));
     /* 磁盘读取 */
     disk_read(s_pdrv, buffer, lba, block_count);
+    lv_timer_enable(true);
 
     return block_count * s_disk_block_size;
 }
@@ -295,18 +301,15 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void *buff
  */
 int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset, uint8_t *buffer, uint32_t bufsize)
 {
-    ESP_LOGD(__func__, "");
     (void) offset;
-
-    if (lun >= LOGICAL_DISK_NUM)
-    {
-        ESP_LOGE(__func__, "invalid lun number %u", lun);
-        return 0;
-    }
-
+    if (lun >= LOGICAL_DISK_NUM) return 0;
+    lv_timer_enable(false);
     const uint32_t block_count = bufsize / s_disk_block_size;
+    vTaskDelay(pdMS_TO_TICKS(10));
+
     /* 磁盘写入 */
     disk_write(s_pdrv, buffer, lba, block_count);
+    lv_timer_enable(true);
 
     return block_count * s_disk_block_size;
 }
@@ -468,6 +471,7 @@ void tud_usb_flash(void)
     const tinyusb_config_t tusb_cfg = {0};
     /* USB设备登记 */
     ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
+    ui_set_usb_connected(false);
     ESP_LOGI(TAG, "USB MSC initialization DONE");
 }
 
@@ -481,6 +485,8 @@ void usb_copy_task(void *arg)
 
     while (1) {
         if (xQueueReceive(usb_copy_queue, &msg, portMAX_DELAY)) {
+            lv_timer_enable(false);
+            vTaskDelay(pdMS_TO_TICKS(1000));
 
             ESP_LOGI("USB", "copy %s -> %s", msg.src, msg.dst);
 
@@ -520,6 +526,7 @@ void usb_copy_task(void *arg)
             tud_disconnect();
             vTaskDelay(pdMS_TO_TICKS(800));
             tud_connect();
+            lv_timer_enable(true);
         }
     }
 }
