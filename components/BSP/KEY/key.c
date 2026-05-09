@@ -26,6 +26,17 @@
  * @param       无
  * @retval      无
  */
+// void key_init(void)
+// {
+//     gpio_config_t gpio_init_struct;
+
+//     gpio_init_struct.intr_type = GPIO_INTR_DISABLE;         /* 失能引脚中断 */
+//     gpio_init_struct.mode = GPIO_MODE_INPUT;                /* 输入模式 */
+//     gpio_init_struct.pull_up_en = GPIO_PULLUP_ENABLE;       /* 使能上拉 */
+//     gpio_init_struct.pull_down_en = GPIO_PULLDOWN_DISABLE;  /* 失能下拉 */
+//     gpio_init_struct.pin_bit_mask = 1ull << BOOT_GPIO_PIN;  /* BOOT按键引脚 */
+//     gpio_config(&gpio_init_struct);                         /* 配置使能 */
+// }
 void key_init(void)
 {
     gpio_config_t gpio_init_struct;
@@ -34,10 +45,9 @@ void key_init(void)
     gpio_init_struct.mode = GPIO_MODE_INPUT;                /* 输入模式 */
     gpio_init_struct.pull_up_en = GPIO_PULLUP_ENABLE;       /* 使能上拉 */
     gpio_init_struct.pull_down_en = GPIO_PULLDOWN_DISABLE;  /* 失能下拉 */
-    gpio_init_struct.pin_bit_mask = 1ull << BOOT_GPIO_PIN;  /* BOOT按键引脚 */
+    gpio_init_struct.pin_bit_mask = 1ull << KEY1_GPIO_PIN | (1ULL << KEY2_GPIO_PIN) | (1ULL << KEY3_GPIO_PIN);
     gpio_config(&gpio_init_struct);                         /* 配置使能 */
 }
-
 /**
  * @brief       按键扫描函数
  * @param       mode:0 / 1, 具体含义如下:

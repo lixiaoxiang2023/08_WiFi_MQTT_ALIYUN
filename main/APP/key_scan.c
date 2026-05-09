@@ -10,8 +10,8 @@
 #include "web_server_handlers.h"
 #include "ui_lvgl.h"
 #include "lvgl_manager.h"
-
-
+#include "key_scan.h"
+#include "key.h"
 
 // 队列句柄
 esp_mqtt_client_handle_t client = NULL;
@@ -28,6 +28,7 @@ void wifi_switch_mode(void)
     ui_set_wifi_connected(false);
     ui_show_wifi();
 
+    wifi_smartconfig_stop();
     esp_wifi_stop();
 
     if (g_wifi_user_mode == WIFI_MODE_WEB_CONFIG)
@@ -302,24 +303,41 @@ void ota_daemon_task(void *pvParameter) {
         }
     }
 }
+
+
 void key_scan_task(void *arg)
 {
     uint8_t key;
 
     wifi_config_t conf;
     esp_wifi_get_config(WIFI_IF_STA, &conf);
-
+    key_init();
    // lcd_show_homepage((char *)conf.sta.ssid, "Waiting for IP...", false);
-    while (g_sys_status != SYS_READY) 
-    {
-        //ESP_LOGW("UI", "System busy, key ignored.");
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
+    // while (g_sys_status != SYS_READY) 
+    // {
+    //     //ESP_LOGW("UI", "System busy, key ignored.");
+    //     vTaskDelay(pdMS_TO_TICKS(100));
+    // }
     wifi_switch_mode();
 
     while(1)
     {
+#ifdef LCD_1_47INCHL
+
+        if (KEY1_CODE == 0) {
+            key = KEY1_PRES;
+            ESP_LOGE("KEY", "KEY1");
+        } 
+        else if (KEY3_CODE == 0) {
+            ESP_LOGE("KEY", "KEY3");
+            key = KEY3_PRES;
+        }
+        else {
+            key = 0;
+        }
+#else
         key = xl9555_key_scan(0);
+#endif
         switch (key)
         {
             case KEY0_PRES:

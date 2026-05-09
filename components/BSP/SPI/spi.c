@@ -43,6 +43,23 @@ void spi2_init(void)
     ret = spi_bus_initialize(SPI2_HOST, &spi_bus_conf, SPI_DMA_CH_AUTO);        /* SPI总线初始化 */
     ESP_ERROR_CHECK(ret);                                                       /* 校验参数值 */
 }
+void spi3_init(void)
+{
+    esp_err_t ret = 0;
+    spi_bus_config_t spi_bus_conf = {0};
+
+    /* SPI总线配置 */
+    spi_bus_conf.miso_io_num = -1;                               /* SPI_MISO引脚 */
+    spi_bus_conf.mosi_io_num = SPI3_MOSI_GPIO_PIN;                               /* SPI_MOSI引脚 */
+    spi_bus_conf.sclk_io_num = SPI3_CLK_GPIO_PIN;                                /* SPI_SCLK引脚 */
+    spi_bus_conf.quadwp_io_num = -1;                                            /* SPI写保护信号引脚，该引脚未使能 */
+    spi_bus_conf.quadhd_io_num = -1;                                            /* SPI保持信号引脚，该引脚未使能 */
+    spi_bus_conf.max_transfer_sz = 4096 * 4;                               /* 配置最大传输大小，以字节为单位 */
+    spi_bus_conf.intr_flags = 0;                                                            /* 配置SPI中断标志，默认为0 */
+    /* 初始化SPI总线 */
+    ret = spi_bus_initialize(SPI3_HOST, &spi_bus_conf, SPI_DMA_CH_AUTO);        /* SPI总线初始化 */
+    ESP_ERROR_CHECK(ret);                                                       /* 校验参数值 */
+}
 
 /**
  * @brief       SPI发送命令

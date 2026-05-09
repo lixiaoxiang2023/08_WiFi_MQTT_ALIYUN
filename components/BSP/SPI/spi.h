@@ -32,8 +32,12 @@
 #define SPI_CLK_GPIO_PIN    GPIO_NUM_12         /* SPI2_CLK */
 #define SPI_MISO_GPIO_PIN   GPIO_NUM_13         /* SPI2_MISO */
 
+#define SPI3_MOSI_GPIO_PIN   GPIO_NUM_4         /* SPI3_MOSI */
+#define SPI3_CLK_GPIO_PIN    GPIO_NUM_5         /* SPI3_CLK */
+
 /* 函数声明 */
-void spi2_init(void);                                                               /* 初始化SPI2 */
+void spi2_init(void);          
+void spi3_init(void);                                                               /* 初始化SPI3 */
 void spi2_write_cmd(spi_device_handle_t handle, uint8_t cmd);                       /* SPI发送命令 */
 void spi2_write_data(spi_device_handle_t handle, const uint8_t *data, int len);     /* SPI发送数据 */
 uint8_t spi2_transfer_byte(spi_device_handle_t handle, uint8_t byte);               /* SPI处理数据 */

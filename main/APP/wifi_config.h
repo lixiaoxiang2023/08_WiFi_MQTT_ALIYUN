@@ -53,6 +53,7 @@ esp_err_t wifi_smartconfig_sta(void);
 /* 阻塞等待 WiFi 连接成功（拿到 IP） */
 esp_err_t wifi_config_wait_connected(void);
 esp_err_t wifi_apply_config(const char *ssid, const char *password);
+void wifi_smartconfig_stop(void);
 esp_err_t wifi_scan_handler(httpd_req_t *req);
 esp_err_t connect_wifi_handler(httpd_req_t *req);
 esp_err_t save_config_handler(httpd_req_t *req);

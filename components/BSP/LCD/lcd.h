@@ -32,10 +32,31 @@
 #include "xl9555.h"
 #include "spi.h"
 
+#ifdef LCD_1_47INCHL
 
-/* 引脚定义 */
-#define LCD_NUM_WR      GPIO_NUM_40
-#define LCD_NUM_CS      GPIO_NUM_21
+    #define LCD_NUM_WR      GPIO_NUM_4
+    #define LCD_NUM_CS      GPIO_NUM_3
+    #define LCD_NUM_PWR     GPIO_NUM_6
+    /* IO操作 */
+#define LCD_WR(x)       do{ x ? \
+                            (gpio_set_level(LCD_NUM_WR, 1)):    \
+                            (gpio_set_level(LCD_NUM_WR, 0));    \
+                        }while(0)
+
+#define LCD_CS(x)       do{ x ? \
+                            (gpio_set_level(LCD_NUM_CS, 1)):    \
+                            (gpio_set_level(LCD_NUM_CS, 0));    \
+                        }while(0)
+
+#define LCD_PWR(x)       do{ x ? \
+                            (gpio_set_level(LCD_NUM_PWR, 1)): \
+                            (gpio_set_level(LCD_NUM_PWR, 0)); \
+                        }while(0)
+
+#else
+    /* 引脚定义 */
+    #define LCD_NUM_WR      GPIO_NUM_40
+    #define LCD_NUM_CS      GPIO_NUM_21
 
 /* IO操作 */
 #define LCD_WR(x)       do{ x ? \
@@ -57,7 +78,7 @@
                             (xl9555_pin_write(SLCD_RST_IO, 1)): \
                             (xl9555_pin_write(SLCD_RST_IO, 0)); \
                         }while(0)
-
+#endif
 /* 常用颜色值 */
 #define WHITE           0xFFFF      /* 白色 */
 #define BLACK           0x0000      /* 黑色 */

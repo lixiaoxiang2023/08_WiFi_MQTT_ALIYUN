@@ -25,16 +25,23 @@
 #include "freertos/task.h"
 #include "driver/gpio.h"
 
-
 /* 引脚定义 */
 #define BOOT_GPIO_PIN   GPIO_NUM_0
+#define KEY1_GPIO_PIN   GPIO_NUM_14
+#define KEY2_GPIO_PIN   GPIO_NUM_15
+#define KEY3_GPIO_PIN   GPIO_NUM_16
 
 /*IO操作*/
 #define BOOT            gpio_get_level(BOOT_GPIO_PIN)
+#define KEY1_CODE            gpio_get_level(KEY1_GPIO_PIN)
+#define KEY2_CODE              gpio_get_level(KEY2_GPIO_PIN)
+#define KEY3_CODE               gpio_get_level(KEY3_GPIO_PIN)
 
 /* 按键按下定义 */
 #define BOOT_PRES       1       /* BOOT按键按下 */
-
+#define KEY1_PRES       2       /* KEY1按键按下 */
+#define KEY2_PRES       3       /* KEY2按键按下 */
+#define KEY3_PRES       4      /* KEY3按键按下 */
 /* 函数声明 */
 void key_init(void);            /* 初始化按键 */
 uint8_t key_scan(uint8_t mode); /* 按键扫描函数 */

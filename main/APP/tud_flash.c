@@ -465,7 +465,14 @@ static esp_err_t tud_sdcard_init(const char *base_path)
 void tud_usb_flash(void)
 {
     /* 初始化TF卡 */
-    ESP_ERROR_CHECK(tud_sdcard_init(disk_path));
+
+    if(tud_sdcard_init(disk_path) != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to initialize SD card for USB MSC");
+        return;
+    }
+
+
     vTaskDelay(100);
 
     const tinyusb_config_t tusb_cfg = {0};

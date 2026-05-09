@@ -112,8 +112,15 @@ void app_main(void)
     led_init();
     i2c0_master = iic_init(I2C_NUM_0);
     spi2_init();
+#ifdef LCD_1_47INCHL
+
+#else
     xl9555_init(i2c0_master);
+#endif
   //  lcd_init();
+#ifdef LCD_1_47INCHL
+    spi3_init();
+#endif
     lv_disp_t * disp = lv_port_lcd_init();
 
     if (disp == NULL) {

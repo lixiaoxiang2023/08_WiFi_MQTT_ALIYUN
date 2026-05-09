@@ -1,4 +1,5 @@
 set(src_dirs
+            KEY
             IIC
             LCD
             LED
@@ -12,6 +13,7 @@ set(src_dirs
             LVGL)
 
 set(include_dirs
+            KEY
             IIC
             FIRMWARE_STORAGE    
             FIRMWARE_STORAGE/include

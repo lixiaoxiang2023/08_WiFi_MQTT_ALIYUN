@@ -7,6 +7,7 @@
 #include "esp_log.h"
 #include "lcd.h"
 
+
 // 将你的旧初始化序列转换为正规格式
 static const struct {
     uint8_t cmd;
@@ -75,7 +76,18 @@ lv_disp_t * lv_port_lcd_init(void)
     LCD_PWR(1); // 确保电源引脚被正确设置   
     const lvgl_port_cfg_t lvgl_cfg = ESP_LVGL_PORT_INIT_CONFIG();
     lvgl_port_init(&lvgl_cfg);
-
+#ifdef LCD_1_47INCHL
+    const lvgl_port_display_cfg_t disp_cfg = {
+        .io_handle = io_handle,
+        .panel_handle = panel_handle,
+        .buffer_size = 320 * 20,
+        .double_buffer = false,
+        .hres = 172, 
+        .vres = 320,
+        .monochrome = false,
+        .flags = { .buff_dma = true }
+    };
+#else
     const lvgl_port_display_cfg_t disp_cfg = {
         .io_handle = io_handle,
         .panel_handle = panel_handle,
@@ -86,6 +98,7 @@ lv_disp_t * lv_port_lcd_init(void)
         .monochrome = false,
         .flags = { .buff_dma = true }
     };
+#endif
     lv_disp_t *disp = lvgl_port_add_disp(&disp_cfg);
 
     lv_disp_set_rotation(disp, LV_DISP_ROT_270);

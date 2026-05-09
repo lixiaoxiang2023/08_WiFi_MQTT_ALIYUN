@@ -5,6 +5,7 @@
 #include "esp_smartconfig.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
+#include "freertos/task.h"
 #include <string.h>
 #include "lcd.h"
 #include "cJSON.h"
@@ -35,6 +36,7 @@ static wifi_prov_mode_t s_prov_mode = WIFI_PROV_NONE;
 
 EventGroupHandle_t s_wifi_event_group;
 static bool s_smartconfig_started = false;
+static TaskHandle_t s_smartconfig_task_handle = NULL;
 static void smartconfig_start(void);
 static void smartconfig_task(void *parm);
 void web_prov_start(void);
@@ -98,14 +100,26 @@ void web_prov_stop(void)
 
 static void smartconfig_stop(void)
 {
-    if (s_prov_mode != WIFI_PROV_SMARTCONFIG)
-        return;
+    if (s_prov_mode == WIFI_PROV_SMARTCONFIG) {
+        ESP_LOGI(TAG, "Stop SmartConfig");
+        esp_smartconfig_stop();
+    }
 
-    ESP_LOGI(TAG, "Stop SmartConfig");
-
-    esp_smartconfig_stop();
     s_smartconfig_started = false;
     s_prov_mode = WIFI_PROV_NONE;
+    if (s_wifi_event_group) {
+        xEventGroupClearBits(s_wifi_event_group, WIFI_CFG_CONNECTED_BIT | WIFI_CFG_SC_DONE_BIT);
+    }
+
+    if (s_smartconfig_task_handle != NULL && s_smartconfig_task_handle != xTaskGetCurrentTaskHandle()) {
+        vTaskDelete(s_smartconfig_task_handle);
+        s_smartconfig_task_handle = NULL;
+    }
+}
+
+void wifi_smartconfig_stop(void)
+{
+    smartconfig_stop();
 }
 /* ================= 事件处理 ================= */
 static void event_handler(void *arg,
@@ -134,8 +148,17 @@ static void event_handler(void *arg,
                 esp_wifi_connect();
             } else {
                 ESP_LOGW(TAG, "Exceeded max retries, will start SmartConfig");
-                // 触发主任务启动 SmartConfig （如果需要）
-                // xEventGroupSetBits(s_wifi_event_group, WIFI_CFG_CONNECTED_BIT); // 这一行可能不准确，看你的逻辑
+                if (s_prov_mode != WIFI_PROV_SMARTCONFIG) {
+                    xTaskCreatePinnedToCore(
+                        smartconfig_task,
+                        "smartconfig_task",
+                        4096,
+                        NULL,
+                        5,
+                        NULL,
+                        1
+                    );
+                }
             }
             break;
 
@@ -292,13 +315,9 @@ esp_err_t wifi_smartconfig_sta(void)
                 ESP_LOGI(TAG, "WiFi connected successfully");
             }
 
-
         } else {
 
             ESP_LOGW(TAG, "WiFi connect failed, start SmartConfig");
-
-           // s_prov_mode = WIFI_PROV_SMARTCONFIG;
-           // xTaskCreate(smartconfig_task, "smartconfig_task", 4096, NULL, 5, NULL);
             xTaskCreatePinnedToCore(
                 smartconfig_task,
                 "smartconfig_task",
@@ -307,9 +326,20 @@ esp_err_t wifi_smartconfig_sta(void)
                 5,
                 NULL,
                 1
-                );
+            );
         }
-    } 
+    } else {
+        ESP_LOGW(TAG, "No saved WiFi configuration found, start SmartConfig");
+        xTaskCreatePinnedToCore(
+            smartconfig_task,
+            "smartconfig_task",
+            4096,
+            NULL,
+            5,
+            NULL,
+            1
+        );
+    }
     return ESP_OK;
 }
 
@@ -351,10 +381,9 @@ static void smartconfig_task(void *parm)
     }
 
     s_smartconfig_started = true;
+    s_smartconfig_task_handle = xTaskGetCurrentTaskHandle();
 
     ESP_ERROR_CHECK(esp_smartconfig_set_type(SC_TYPE_ESPTOUCH));
-    smartconfig_start_config_t cfg = SMARTCONFIG_START_CONFIG_DEFAULT();
-    //ESP_ERROR_CHECK(esp_smartconfig_start(&cfg));
     smartconfig_start();
 
     while (1) {
@@ -363,28 +392,33 @@ static void smartconfig_task(void *parm)
             WIFI_CFG_CONNECTED_BIT | WIFI_CFG_SC_DONE_BIT,
             pdFALSE, // 执行完不清除位
             pdFALSE, // 等待任何一个位，而不是所有位
-            portMAX_DELAY
+            pdMS_TO_TICKS(1000)
         );
+
+        if (s_prov_mode != WIFI_PROV_SMARTCONFIG) {
+            ESP_LOGI(TAG, "SmartConfig task exiting because SmartConfig was stopped externally");
+            break;
+        }
+
+        if (bits == 0) {
+            continue;
+        }
 
         if (bits & WIFI_CFG_CONNECTED_BIT) {
             ESP_LOGI(TAG, "WiFi Connected");
-            // esp_smartconfig_stop(); // 连接成功后停止 SmartConfig
-            // s_smartconfig_started = false;
-            // vTaskDelete(NULL);
             vTaskDelay(pdMS_TO_TICKS(300));
-
-            // xEventGroupClearBits(s_wifi_event_group, WIFI_CFG_CONNECTED_BIT); // 清除位，避免重复处理
-            // smartconfig_stop(); // 停止 SmartConfig，防止与 web prov 冲突
-            // vTaskDelete(NULL); // 任务完成自毁
         }
 
         if (bits & WIFI_CFG_SC_DONE_BIT) {
             ESP_LOGI(TAG, "SmartConfig Done Bit Set"); // SC_EVENT_SEND_ACK_DONE 会设置此位
             esp_smartconfig_stop();
-            s_smartconfig_started = false;
-            vTaskDelete(NULL);
+            break;
         }
     }
+
+    s_smartconfig_started = false;
+    s_smartconfig_task_handle = NULL;
+    vTaskDelete(NULL);
 }
 
 void print_current_time(void) {
