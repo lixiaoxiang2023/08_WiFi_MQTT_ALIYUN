@@ -83,7 +83,26 @@ void setup_ui(void) {
     lv_obj_center(btn_label);
 }
 #include "lvgl_manager.h"
+void lcd_gpio_init(void)
+{
+    gpio_config_t io_conf = {};
 
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+
+    // 输出IO统一配置
+    io_conf.pin_bit_mask =
+        (1ULL << LCD_NUM_WR) |
+        (1ULL << LCD_NUM_CS) |
+        (1ULL << LCD_NUM_PWR);
+
+    gpio_config(&io_conf);
+
+    // ===== 默认电平 =====
+    //gpio_set_level(LCD_NUM_PWR, 1);   // 背光/电源打开
+}
 void app_main(void)
 {
     esp_err_t ret;
@@ -109,16 +128,19 @@ void app_main(void)
     ota_check_and_confirm();
 
     /* ================= 打印系统内存 ================= */
-    led_init();
-    i2c0_master = iic_init(I2C_NUM_0);
+   // led_init();
+   // i2c0_master = iic_init(I2C_NUM_0);
     spi2_init();
 #ifdef LCD_1_47INCHL
 
-#else
+#else   
+    led_init();
+    i2c0_master = iic_init(I2C_NUM_0);
     xl9555_init(i2c0_master);
 #endif
   //  lcd_init();
 #ifdef LCD_1_47INCHL
+    lcd_gpio_init();
     spi3_init();
 #endif
     lv_disp_t * disp = lv_port_lcd_init();

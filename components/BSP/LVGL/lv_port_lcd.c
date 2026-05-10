@@ -39,24 +39,34 @@ lv_disp_t * lv_port_lcd_init(void)
     };
     
     // 确保使用你的总线 HOST
-    esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)SPI2_HOST, &io_config, &io_handle);
-
+    ESP_ERROR_CHECK(
+        esp_lcd_new_panel_io_spi(
+            (esp_lcd_spi_bus_handle_t)SPI3_HOST,
+            &io_config,
+            &io_handle
+        )
+    );
     esp_lcd_panel_handle_t panel_handle = NULL;
     esp_lcd_panel_dev_config_t panel_config = {
-        .reset_gpio_num = 1,             
+        .reset_gpio_num = -1,             
         .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
         .bits_per_pixel = 16,
     };
     
-    esp_lcd_new_panel_st7789(io_handle, &panel_config, &panel_handle);
-
+    ESP_ERROR_CHECK(
+        esp_lcd_new_panel_st7789(
+            io_handle,
+            &panel_config,
+            &panel_handle
+        )
+    );
     // ⭐ 最小改动 2：执行顺序调整
     esp_lcd_panel_reset(panel_handle);
     esp_lcd_panel_init(panel_handle);
 
     // ⭐ 最小改动 3：强制反转颜色并关闭反色（根据ST7789特质切换测试）
     esp_lcd_panel_invert_color(panel_handle, true); 
-    esp_lcd_panel_set_gap(panel_handle, 0, 0); 
+    esp_lcd_panel_set_gap(panel_handle,0, 0); 
 
     // 发送自定义序列（保留你的逻辑，但确保延时生效）
     int i = 0;
@@ -74,6 +84,7 @@ lv_disp_t * lv_port_lcd_init(void)
     esp_lcd_panel_mirror(panel_handle, true, false); 
     esp_lcd_panel_swap_xy(panel_handle, false);
     LCD_PWR(1); // 确保电源引脚被正确设置   
+  //  gpio_set_level(LCD_NUM_PWR, 1);   // 背光/电源打开
     const lvgl_port_cfg_t lvgl_cfg = ESP_LVGL_PORT_INIT_CONFIG();
     lvgl_port_init(&lvgl_cfg);
 #ifdef LCD_1_47INCHL
