@@ -12,6 +12,7 @@
 #include "lvgl_manager.h"
 #include "key_scan.h"
 #include "key.h"
+#include "tud_flash.h"
 
 // 队列句柄
 esp_mqtt_client_handle_t client = NULL;
@@ -304,7 +305,6 @@ void ota_daemon_task(void *pvParameter) {
     }
 }
 
-
 void key_scan_task(void *arg)
 {
     uint8_t key;
@@ -323,18 +323,7 @@ void key_scan_task(void *arg)
     while(1)
     {
 #ifdef LCD_1_47INCHL
-
-        if (KEY1_CODE == 0) {
-            key = KEY1_PRES;
-            ESP_LOGE("KEY", "KEY1");
-        } 
-        else if (KEY3_CODE == 0) {
-            ESP_LOGE("KEY", "KEY3");
-            key = KEY3_PRES;
-        }
-        else {
-            key = 0;
-        }
+        key = key_scan(0);
 #else
         key = xl9555_key_scan(0);
 #endif
@@ -384,6 +373,15 @@ void key_scan_task(void *arg)
             case KEY2_PRES:
             {
                 printf("KEY2 has been pressed \n");
+                xTaskCreatePinnedToCore(
+                    usb_copy_task,
+                    "usb_copy",
+                    4096,
+                    NULL,
+                    4,
+                    NULL,
+                    1
+                );
                 break;
             }
             case KEY3_PRES:

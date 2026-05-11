@@ -487,6 +487,7 @@ void tud_usb_flash(void)
 void usb_copy_task(void *arg)
 {
     file_copy_msg_t msg;
+    tud_usb_flash();
 
     usb_copy_queue = xQueueCreate(2, sizeof(file_copy_msg_t));
 

@@ -50,37 +50,46 @@ void key_init(void)
 }
 /**
  * @brief       按键扫描函数
- * @param       mode:0 / 1, 具体含义如下:
- *              0,  不支持连续按(当按键按下不放时, 只有第一次调用会返回键值,
- *                  必须松开以后, 再次按下才会返回其他键值)
- *              1,  支持连续按(当按键按下不放时, 每次调用该函数都会返回键值)
+ * @param       mode:0->不连续;1->连续
  * @retval      键值, 定义如下:
- *              BOOT_PRES, 1, BOOT按下
+ *              KEY0_PRES, 1, KEY0按下
+ *              KEY1_PRES, 2, KEY1按下
+ *              KEY2_PRES, 3, KEY2按下
+ *              KEY3_PRES, 4, KEY3按下
  */
 uint8_t key_scan(uint8_t mode)
 {
     uint8_t keyval = 0;
-    static uint8_t key_boot = 1;    /* 按键松开标志 */
+    static uint8_t key_up = 1;                                          /* 按键按松开标志 */
 
-    if(mode)
+    if (mode)
     {
-        key_boot = 1;
+        key_up = 1;                                                     /* 支持连按 */
     }
-
-    if (key_boot && (BOOT == 0))    /* 按键松开标志为1，且有任意一个按键按下了 */
+    
+    if (key_up && (KEY1_CODE == 0 || KEY2_CODE == 0 || KEY3_CODE == 0 )) /* 按键松开标志为1, 且有任意一个按键按下了 */
     {
-        vTaskDelay(10);             /* 去抖动 */
-        key_boot = 0;
+        vTaskDelay(10);                                                 /* 去抖动 */
+        key_up = 0;
 
-        if (BOOT == 0)
+        if (KEY1_CODE == 0)
         {
-            keyval = BOOT_PRES;
+            keyval = KEY1_PRES;
         }
+        if (KEY2_CODE == 0)
+        {
+            keyval = KEY2_PRES;
+        }
+        if (KEY3_CODE == 0)
+        {
+            keyval = KEY3_PRES;
+        }
+
     }
-    else if (BOOT == 1)
+    else if (KEY1_CODE == 1 && KEY2_CODE == 1 && KEY3_CODE == 1)          /* 没有任何按键按下, 标记按键松开 */
     {
-        key_boot = 1;
+        key_up = 1;
     }
 
-    return keyval;                  /* 返回键值 */
+    return keyval;                                                      /* 返回键值 */
 }

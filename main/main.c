@@ -129,7 +129,7 @@ void app_main(void)
     }
     
     ESP_LOGI("MAIN", "soft version: %s",FW_VERSION);
-    tud_usb_flash();
+    vTaskDelay(pdMS_TO_TICKS(3000));
     firmware_storage_check(NULL);
     ui_create();
     /* ================= 本地任务 ================= */
@@ -143,22 +143,22 @@ void app_main(void)
     //     NULL,
     //     1
     // );
-    xTaskCreatePinnedToCore(
-        usb_copy_task,
-        "usb_copy",
-        4096,
-        NULL,
-        4,
-        NULL,
-        1
-    );
+    // xTaskCreatePinnedToCore(
+    //     usb_copy_task,
+    //     "usb_copy",
+    //     4096,
+    //     NULL,
+    //     4,
+    //     NULL,
+    //     1
+    // );
 
     //xTaskCreate(key_scan_task, "key_scan_task", 4* 1024, NULL, 5, NULL);
     // 将 key_scan_task 也固定到核心 1
     xTaskCreatePinnedToCore(
         key_scan_task, 
         "key_scan_task", 
-        4096,           // 4KB 栈空间
+        4096*2,           // 4KB 栈空间
         NULL, 
         5,              // 优先级保持为 5（高于下载任务的 4）
         NULL, 
