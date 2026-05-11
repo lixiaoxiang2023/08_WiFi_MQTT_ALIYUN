@@ -289,15 +289,8 @@ void lcd_display_dir(uint8_t dir)
  */
 void lcd_hard_reset(void)
 {
-#ifdef LCD_1_47INCHL
     vTaskDelay(100);
-#else
-    /* 复位显示屏 */
-    LCD_RST(0);
-    vTaskDelay(100);
-    LCD_RST(1);
-    vTaskDelay(100);
-#endif
+
 }
 
 /**
