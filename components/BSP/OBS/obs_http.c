@@ -253,7 +253,7 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
     esp_err_t err = ESP_OK;
 
     #define DL_BUFFER_SIZE (32 * 1024)
-    #define PROGRESS_UPDATE_INTERVAL (256 * 1024) 
+    #define PROGRESS_UPDATE_INTERVAL (64 * 1024) 
 
     // --- 5. 核心逻辑处理 ---
     int64_t total_content_length = 0;
@@ -287,7 +287,6 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
         uint32_t last_speed_bytes = local_file_size;
         
         char *buffer = malloc(DL_BUFFER_SIZE);
-        lv_timer_enable(false);
         if (buffer) {
             while (true) {
                 int read_len = esp_http_client_read(client, buffer, DL_BUFFER_SIZE);
@@ -302,10 +301,8 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
                                        (double)(now_time.tv_nsec - last_speed_time.tv_nsec) / 1e9;
                         double instant_speed = (diff_s > 0) ? ((total_read_len - last_speed_bytes) / 1024.0) / diff_s : 0;
                         
-                        // ⭐ 修复：使用 total_content_length 计算全量百分比
                         int percentage = (total_content_length > 0) ? (int)((total_read_len * 100LL) / total_content_length) : 0;
                         
-                        // 计算 ETA
                         int eta_min = 0, eta_sec = 0;
                         if (instant_speed > 0 && total_content_length > total_read_len) {
                             double remaining_kb = (double)(total_content_length - total_read_len) / 1024.0;
@@ -319,9 +316,7 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
 
                         if (percentage != last_percentage) {
                             last_percentage = percentage;
-                           // lv_timer_enable(true);
-                          //  ui_push_download(percentage, instant_speed, eta_min, eta_sec,0,0); // 更新UI显示
-                          //  lv_timer_enable(false);
+                            ui_push_download(percentage, instant_speed, eta_min, eta_sec, 0, total_content_length);
                         }
                         last_speed_bytes = total_read_len;
                         last_speed_time = now_time;

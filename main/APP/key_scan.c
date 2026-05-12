@@ -322,11 +322,8 @@ void key_scan_task(void *arg)
 
     while(1)
     {
-#ifdef LCD_1_47INCHL
         key = key_scan(0);
-#else
-        key = xl9555_key_scan(0);
-#endif
+
         switch (key)
         {
             case KEY0_PRES:

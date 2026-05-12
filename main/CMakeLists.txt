@@ -6,4 +6,3 @@ idf_component_register(
         "."
         "APP")
 
-add_compile_definitions(LCD_1_47INCHL)

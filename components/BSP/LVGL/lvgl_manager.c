@@ -66,12 +66,12 @@ static lv_obj_t *ui_create_md_item(lv_obj_t *parent, const char *symbol, const c
 
     lv_obj_t *t = lv_label_create(parent);
     lv_label_set_text(t, name);
-    lv_obj_set_style_text_font(t, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_font(t, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(t, MD_COLOR_TXT_SEC, 0);
     lv_obj_set_pos(t, 28, y);
 
     lv_obj_t *val = lv_label_create(parent);
-    lv_obj_set_width(val, 220);
+    lv_obj_set_width(val, 240);
     lv_label_set_long_mode(val, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_font(val, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(val, MD_COLOR_TXT_MAIN, 0);
@@ -92,7 +92,7 @@ void ui_show_download(void) {
 /* --- 页面初始化 --- */
 static void ui_create_boot_page(void) {
     g_pages[UI_PAGE_BOOT] = lv_obj_create(lv_scr_act());
-    lv_obj_set_size(g_pages[UI_PAGE_BOOT], 320, 198);
+    lv_obj_set_size(g_pages[UI_PAGE_BOOT], 320, 180);
     lv_obj_align(g_pages[UI_PAGE_BOOT], LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_set_style_bg_opa(g_pages[UI_PAGE_BOOT], 0, 0);
 
@@ -105,41 +105,53 @@ static void ui_create_boot_page(void) {
     lv_obj_set_style_arc_color(sp, MD_COLOR_PRIMARY, LV_PART_INDICATOR);
 
     g_boot_status = lv_label_create(g_boot_card);
-    lv_obj_set_width(g_boot_status, 260);
+    lv_obj_set_width(g_boot_status, 160);
+    lv_label_set_long_mode(g_boot_status, LV_LABEL_LONG_DOT);  // 长文本添加省略号
     lv_obj_set_style_text_align(g_boot_status, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(g_boot_status, &lv_font_montserrat_14, 0);
     lv_obj_align(g_boot_status, LV_ALIGN_BOTTOM_MID, 0, -5);
 }
-/* --- 修正后的 WiFi 页面创建 (修复 WEB IP 标题) --- */
+/* --- 优化后的 WiFi 页面创建 (布局调整，避免超出界面) --- */
 static void ui_create_wifi_page(void) {
     g_pages[UI_PAGE_WIFI] = lv_obj_create(lv_scr_act());
-    lv_obj_set_size(g_pages[UI_PAGE_WIFI], 320, 198);
+    lv_obj_set_size(g_pages[UI_PAGE_WIFI], 320, 180);
     lv_obj_align(g_pages[UI_PAGE_WIFI], LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_add_flag(g_pages[UI_PAGE_WIFI], LV_OBJ_FLAG_HIDDEN);
 
-    lv_obj_t *card = ui_create_md_card(g_pages[UI_PAGE_WIFI], 185);
+    lv_obj_t *card = ui_create_md_card(g_pages[UI_PAGE_WIFI], 180);
     lv_obj_align(card, LV_ALIGN_TOP_MID, 0, 0);
 
-    // 基础信息列表
-    g_wifi_ssid_val = ui_create_md_item(card, LV_SYMBOL_WIFI, "SSID", 5);
-    g_wifi_ip_val   = ui_create_md_item(card, LV_SYMBOL_DIRECTORY, "IP Address", 50);
-    g_wifi_mode_val = ui_create_md_item(card, LV_SYMBOL_SETTINGS, "Mode", 95);
+    // 左侧：基础信息列表 (宽度减小以容纳右侧)
+    g_wifi_ssid_val = ui_create_md_item(card, LV_SYMBOL_WIFI, "SSID", -10);
+    lv_obj_set_width(g_wifi_ssid_val, 160);  // 限制宽度
+    
+    g_wifi_ip_val   = ui_create_md_item(card, LV_SYMBOL_DIRECTORY, "IP Address", 34);
+    lv_obj_set_width(g_wifi_ip_val, 160);  // 限制宽度
+    
+    g_wifi_mode_val = ui_create_md_item(card, LV_SYMBOL_SETTINGS, "Mode", 80);
+    lv_obj_set_width(g_wifi_mode_val, 90);  // Mode 内容较短
 
-    // --- 修复：WEB IP 标题显示 ---
+    // 右侧：Web Server 信息 (紧凑设计)
     lv_obj_t *web_title = lv_label_create(card);
-    lv_label_set_text(web_title, "Web Server");
-    lv_obj_set_style_text_font(web_title, &lv_font_montserrat_12, 0);
+    lv_label_set_text(web_title, "Web Server");  // 缩短标题
+    lv_obj_set_style_text_font(web_title, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(web_title, MD_COLOR_TXT_SEC, 0);
-    lv_obj_set_pos(web_title, 160, 95); // 放在 Mode 右侧
+    lv_obj_set_pos(web_title, 160, 60); // 右上角
 
+    // Web IP 显示框 (缩小尺寸)
     lv_obj_t *chip = lv_obj_create(card);
-    lv_obj_set_size(chip, 130, 30);
-    lv_obj_set_pos(chip, 145, 115); // 放在标题下方
+    lv_obj_set_size(chip, 110, 28);  // 宽度从130减小到110
+    lv_obj_set_pos(chip, 155, 80); // 调整位置，确保不超出
     lv_obj_set_style_bg_color(chip, MD_COLOR_ACCENT, 0);
-    lv_obj_set_style_radius(chip, 15, 0);
+    lv_obj_set_style_radius(chip, 12, 0);
     lv_obj_set_style_border_width(chip, 0, 0);
+    lv_obj_set_style_pad_all(chip, 6, 0);
 
     g_wifi_web_val = lv_label_create(chip);
+    lv_label_set_long_mode(g_wifi_web_val, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(g_wifi_web_val, 98);  // 内部宽度限制
     lv_obj_align(g_wifi_web_val, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_text_font(g_wifi_web_val, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(g_wifi_web_val, MD_COLOR_PRIMARY, 0);
 }
 /**
@@ -219,44 +231,64 @@ static void ui_refresh(void) {
 }
 static void ui_create_download_page(void) {
     g_pages[UI_PAGE_DOWNLOAD] = lv_obj_create(lv_scr_act());
-    lv_obj_set_size(g_pages[UI_PAGE_DOWNLOAD], 320, 198);
+    lv_obj_set_size(g_pages[UI_PAGE_DOWNLOAD], 320, 180);
     lv_obj_align(g_pages[UI_PAGE_DOWNLOAD], LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_add_flag(g_pages[UI_PAGE_DOWNLOAD], LV_OBJ_FLAG_HIDDEN);
 
-    lv_obj_t *card = ui_create_md_card(g_pages[UI_PAGE_DOWNLOAD], 185);
+    lv_obj_t *card = ui_create_md_card(g_pages[UI_PAGE_DOWNLOAD], 180);
     lv_obj_align(card, LV_ALIGN_TOP_MID, 0, 0);
-    // 关键：减小左右间距，给文字腾空间
-    lv_obj_set_style_pad_left(card, 12, 0);
-    lv_obj_set_style_pad_right(card, 12, 0);
+    // 减小内边距，给文字更多空间
+    lv_obj_set_style_pad_left(card, 10, 0);
+    lv_obj_set_style_pad_right(card, 10, 0);
+    lv_obj_set_style_pad_top(card, 12, 0);
+    lv_obj_set_style_pad_bottom(card, 10, 0);
 
-    g_dl_file_name = ui_create_md_item(card, LV_SYMBOL_DOWNLOAD, "Updating System", 5);
+    // 文件名显示（缩短标题，限制宽度）
+    lv_obj_t *dl_icon = lv_label_create(card);
+    lv_label_set_text(dl_icon, LV_SYMBOL_DOWNLOAD);
+    lv_obj_set_style_text_color(dl_icon, MD_COLOR_PRIMARY, 0);
+    lv_obj_set_pos(dl_icon, 0, 6);
+
+    lv_obj_t *dl_title = lv_label_create(card);
+    lv_label_set_text(dl_title, "Update");  // 简化标题
+    lv_obj_set_style_text_font(dl_title, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(dl_title, MD_COLOR_TXT_SEC, 0);
+    lv_obj_set_pos(dl_title, 28, 0);
+
+    g_dl_file_name = lv_label_create(card);
+    lv_obj_set_width(g_dl_file_name, 172);  // 限制宽度防止超出
+    lv_label_set_long_mode(g_dl_file_name, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_font(g_dl_file_name, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(g_dl_file_name, MD_COLOR_TXT_MAIN, 0);
+    lv_obj_set_pos(g_dl_file_name, 28, 18);
     
-    // 进度条稍微调短一点，给两边留白
+    // 进度条紧凑设计
     g_dl_bar = lv_bar_create(card);
-    lv_obj_set_size(g_dl_bar, 250, 10);
-    lv_obj_set_pos(g_dl_bar, 10, 65);
+    lv_obj_set_size(g_dl_bar, 260, 10);
+    lv_obj_set_pos(g_dl_bar, 5, 50);
     lv_obj_set_style_bg_color(g_dl_bar, MD_COLOR_ACCENT, LV_PART_MAIN);
     lv_obj_set_style_bg_color(g_dl_bar, MD_COLOR_PRIMARY, LV_PART_INDICATOR);
 
-    // 百分比：靠左对齐
+    // 百分比（靠左）+ 速度（靠右）在同一行
     g_dl_percent = lv_label_create(card);
-    lv_obj_set_style_text_font(g_dl_percent, &lv_font_montserrat_12, 0);
-    lv_obj_set_pos(g_dl_percent, 10, 80);
+    lv_obj_set_style_text_font(g_dl_percent, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(g_dl_percent, MD_COLOR_TXT_MAIN, 0);
+    lv_obj_set_pos(g_dl_percent, 5, 65);
 
-    // 速度：靠右对齐，且设置最大宽度防止超框
     g_dl_speed = lv_label_create(card);
-    lv_obj_set_style_text_font(g_dl_speed, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_font(g_dl_speed, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(g_dl_speed, MD_COLOR_TXT_SEC, 0);
-    lv_obj_set_width(g_dl_speed, 120); 
+    lv_obj_set_width(g_dl_speed, 100); 
     lv_obj_set_style_text_align(g_dl_speed, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_align(g_dl_speed, LV_ALIGN_TOP_RIGHT, -10, 80);
+    lv_obj_align(g_dl_speed, LV_ALIGN_TOP_RIGHT, -5, 65);
 
-    // 状态描述
+    // 状态描述（底部）
     g_dl_status = lv_label_create(card);
     lv_obj_set_width(g_dl_status, 260);
-    lv_obj_set_style_text_font(g_dl_status, &lv_font_montserrat_12, 0);
+    lv_label_set_long_mode(g_dl_status, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_font(g_dl_status, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(g_dl_status, MD_COLOR_PRIMARY, 0);
-    lv_obj_align(g_dl_status, LV_ALIGN_BOTTOM_LEFT, 10, -5);
+    lv_obj_set_pos(g_dl_status, 5, 80);
 }
 
 static void ui_switch_page_inner(ui_page_t page) {
@@ -325,47 +357,40 @@ void ui_push_download(int p, float s, int em, int es, uint32_t db, uint32_t tb) 
     memcpy(m.text, &payload, sizeof(payload));
     xQueueSend(lvgl_queue, &m, 0);
 }
-
 void ui_create(void) {
     lv_obj_t *scr = lv_scr_act();
-    
-    // 【关键补丁 1】强制屏幕背景不透明，并设置为安卓灰白底色
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     lv_obj_set_style_bg_color(scr, MD_COLOR_BG, 0);
 
-    // 【关键补丁 2】状态栏容器也要设置背景色，确保它刷新时能“盖掉”之前的字符
+    // --- 调整 1：先创建页面，高度设为 146 ---
+    ui_create_boot_page();     // 内部 lv_obj_set_size 需改为 320, 146
+    ui_create_wifi_page();     // 内部 lv_obj_set_size 需改为 320, 146
+    ui_create_download_page(); // 内部 lv_obj_set_size 需改为 320, 146
+
+    // --- 调整 2：后创建状态栏，确保它在对象树末尾（即顶层） ---
     lv_obj_t *sb = lv_obj_create(scr);
-    lv_obj_set_size(sb, 320, 36);
+    lv_obj_set_size(sb, 320, 60); // 高度从 60 缩减到 30
     lv_obj_align(sb, LV_ALIGN_TOP_MID, 0, 0);
     
-    // 强制状态栏背景与屏幕一致且不透明
     lv_obj_set_style_bg_color(sb, MD_COLOR_BG, 0);
     lv_obj_set_style_bg_opa(sb, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(sb, 0, 0);
     lv_obj_set_style_radius(sb, 0, 0);
     lv_obj_clear_flag(sb, LV_OBJ_FLAG_SCROLLABLE);
-
-    // 时间 Label
+    // 调整图标和时间的位置 (y 偏移设为 0，因为 sb 变矮了)
     g_time_label = lv_label_create(sb);
     lv_obj_set_style_text_font(g_time_label, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(g_time_label, MD_COLOR_TXT_MAIN, 0);
-    lv_obj_align(g_time_label, LV_ALIGN_LEFT_MID, 12, 0);
+    lv_obj_align(g_time_label, LV_ALIGN_TOP_LEFT, 8, 30);
 
-    // USB 图标
     g_usb_badge = lv_label_create(sb);
     lv_label_set_text(g_usb_badge, LV_SYMBOL_USB);
-    lv_obj_align(g_usb_badge, LV_ALIGN_RIGHT_MID, -12, 0);
+    lv_obj_align(g_usb_badge, LV_ALIGN_TOP_RIGHT, -8, 30);
 
-    // WiFi 图标
     g_wifi_badge = lv_label_create(sb);
     lv_label_set_text(g_wifi_badge, LV_SYMBOL_WIFI);
-    lv_obj_align_to(g_wifi_badge, g_usb_badge, LV_ALIGN_OUT_LEFT_MID, -8, 0);
+    lv_obj_align_to(g_wifi_badge, g_usb_badge, LV_ALIGN_BOTTOM_LEFT, -24, 0);
 
-    // 初始化页面
-    ui_create_boot_page();
-    ui_create_wifi_page();
-    ui_create_download_page();
-    
     ui_switch_page_inner(UI_PAGE_BOOT);
 }
 
