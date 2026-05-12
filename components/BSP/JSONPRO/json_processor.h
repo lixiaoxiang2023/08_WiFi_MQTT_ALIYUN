@@ -47,6 +47,7 @@ typedef struct {
 typedef struct {
     char file_name[64];       // 对应 files[0].name
     char url[1024];           // 对应 files[0].url，S3 签名 URL 建议给到 1024
+    char filetype[32];        // 对应 files[0].filetype
     char md5[33];             // 对应 files[0].md5
     uint32_t size;            // 对应 files[0].size
 } ota_file_t;
@@ -56,11 +57,16 @@ typedef struct {
     char version[32];        // 对应 data.version
     char created_at[32];     // 对应 data.createdat
     
-    // 文件详细信息 (files[0])
-    char file_name[64];      // 对应 files[0].name
-    char url[1024];          // 对应 files[0].url (重要：必须足够长)
-    char md5[33];            // 对应 files[0].md5
-    uint32_t size;           // 对应 files[0].size
+    // 文件详细信息 (从 files 数组中选择最合适的一个文件)
+    char file_name[64];      // 对应文件的 name
+    char url[1024];          // 对应文件的 url (重要：必须足够长)
+    char filetype[32];       // 对应文件的 filetype
+    char md5[33];            // 对应文件的 md5
+    uint32_t size;           // 对应文件的 size
+    
+    // 全部文件列表
+    ota_file_t files[4];     // 保存最多 4 个文件条目
+    int file_count;
     
     // 业务状态
     int code;                // 顶层 code

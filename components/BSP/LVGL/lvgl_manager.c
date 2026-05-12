@@ -224,7 +224,19 @@ static void ui_refresh(void) {
         lv_label_set_text(g_dl_percent, buf);
         snprintf(buf, sizeof(buf), "%.1f KB/s", g_ui_state.download_speed_kb);
         lv_label_set_text(g_dl_speed, buf);
-        lv_label_set_text(g_dl_status, g_ui_state.ota_status);
+
+        if (g_ui_state.ota_status[0] != '\0') {
+            lv_label_set_text(g_dl_status, g_ui_state.ota_status);
+        } else if (g_ui_state.download_percent >= 100) {
+            lv_label_set_text(g_dl_status, "Complete");
+        } else if (g_ui_state.download_total_bytes > 0) {
+            int downloaded_kb = g_ui_state.download_done_bytes / 1024;
+            int total_kb = g_ui_state.download_total_bytes / 1024;
+            snprintf(buf, sizeof(buf), "%d / %d KB", downloaded_kb, total_kb);
+            lv_label_set_text(g_dl_status, buf);
+        } else {
+            lv_label_set_text(g_dl_status, "Downloading...");
+        }
     } else {
         lv_label_set_text(g_dl_status, "");
     }
@@ -256,7 +268,7 @@ static void ui_create_download_page(void) {
     lv_obj_set_pos(dl_title, 28, 0);
 
     g_dl_file_name = lv_label_create(card);
-    lv_obj_set_width(g_dl_file_name, 172);  // 限制宽度防止超出
+    lv_obj_set_width(g_dl_file_name, 270);  // 限制宽度防止超出
     lv_label_set_long_mode(g_dl_file_name, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_font(g_dl_file_name, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(g_dl_file_name, MD_COLOR_TXT_MAIN, 0);
@@ -409,11 +421,24 @@ void lvgl_task(void *arg) {
                 case LVGL_MSG_SET_WIFI_CONNECTED: g_ui_state.wifi_connected = msg.value; break;
                 case LVGL_MSG_SET_USB_CONNECTED:  g_ui_state.usb_connected = msg.value; break;
                 case LVGL_MSG_SHOW_PAGE:  ui_switch_page_inner((ui_page_t)msg.value); break;
-                case LVGL_MSG_SET_DOWNLOAD_META:  strlcpy(g_ui_state.download_file, msg.text, 64); break;
+                case LVGL_MSG_SET_DOWNLOAD_META:
+                    strlcpy(g_ui_state.download_file, msg.text, 64);
+                    g_ui_state.download_total_bytes = (uint32_t)msg.value;
+                    g_ui_state.download_done_bytes = 0;
+                    g_ui_state.download_percent = 0;
+                    g_ui_state.download_speed_kb = 0.0f;
+                    g_ui_state.download_eta_min = 0;
+                    g_ui_state.download_eta_sec = 0;
+                    break;
                 case LVGL_MSG_DOWNLOAD_PROGRESS: {
-                    download_ui_msg_t *p = (download_ui_msg_t*)msg.text;
-                    g_ui_state.download_percent = p->percentage;
-                    g_ui_state.download_speed_kb = p->speed_kb;
+                    download_ui_msg_t p;
+                    memcpy(&p, msg.text, sizeof(p));
+                    g_ui_state.download_percent = p.percentage;
+                    g_ui_state.download_speed_kb = p.speed_kb;
+                    g_ui_state.download_eta_min = p.eta_min;
+                    g_ui_state.download_eta_sec = p.eta_sec;
+                    g_ui_state.download_done_bytes = p.downloaded_bytes;
+                    g_ui_state.download_total_bytes = p.total_bytes;
                     break;
                 }
             }

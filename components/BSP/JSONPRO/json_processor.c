@@ -5,29 +5,6 @@
 #include "esp_log.h"
 static const char *TAG = "OTA_PARSER";
 
-
-
-
-static char *dup_json_string(const cJSON *item)
-{
-    if (!cJSON_IsString(item) || !item->valuestring)
-        return NULL;
-
-    size_t len = strlen(item->valuestring);
-
-    // 防止异常超长字段攻击
-    if (len > 2048)
-        return NULL;
-
-    char *buf = malloc(len + 1);
-    if (!buf) return NULL;
-
-    memcpy(buf, item->valuestring, len);
-    buf[len] = '\0';
-
-    return buf;
-}
-
 static void zero_out(download_url_info_t *out)
 {
     if (out) memset(out, 0, sizeof(*out));
@@ -248,6 +225,8 @@ end:
 bool parse_ota_response(const char *json_data, ota_info_t *out_info) {
     if (json_data == NULL || out_info == NULL) return false;
 
+    memset(out_info, 0, sizeof(*out_info));
+
     cJSON *root = cJSON_Parse(json_data);
     if (root == NULL) {
         ESP_LOGE(TAG, "JSON 语法错误");
@@ -272,17 +251,64 @@ bool parse_ota_response(const char *json_data, ota_info_t *out_info) {
         // 进入 files 数组
         cJSON *files = cJSON_GetObjectItem(data, "files");
         if (cJSON_IsArray(files) && cJSON_GetArraySize(files) > 0) {
-            cJSON *f_obj = cJSON_GetArrayItem(files, 0); // 取第一个文件
-            
-            cJSON *f_name = cJSON_GetObjectItem(f_obj, "name");
-            cJSON *f_url = cJSON_GetObjectItem(f_obj, "url");
-            cJSON *f_md5 = cJSON_GetObjectItem(f_obj, "md5");
-            cJSON *f_size = cJSON_GetObjectItem(f_obj, "size");
+            cJSON *selected = NULL;
+            cJSON *item = NULL;
+            int file_index = 0;
 
-            if (cJSON_IsString(f_name)) strlcpy(out_info->file_name, f_name->valuestring, sizeof(out_info->file_name));
-            if (cJSON_IsString(f_url)) strlcpy(out_info->url, f_url->valuestring, sizeof(out_info->url));
-            if (cJSON_IsString(f_md5)) strlcpy(out_info->md5, f_md5->valuestring, sizeof(out_info->md5));
-            if (cJSON_IsNumber(f_size)) out_info->size = (uint32_t)f_size->valueint;
+            cJSON_ArrayForEach(item, files) {
+                if (!cJSON_IsObject(item) || file_index >= (int)(sizeof(out_info->files)/sizeof(out_info->files[0]))) {
+                    continue;
+                }
+
+                ota_file_t *target_file = &out_info->files[file_index];
+                memset(target_file, 0, sizeof(*target_file));
+
+                cJSON *f_name = cJSON_GetObjectItem(item, "name");
+                cJSON *f_url = cJSON_GetObjectItem(item, "url");
+                cJSON *f_type = cJSON_GetObjectItem(item, "filetype");
+                cJSON *f_md5 = cJSON_GetObjectItem(item, "md5");
+                cJSON *f_size = cJSON_GetObjectItem(item, "size");
+
+                if (cJSON_IsString(f_name)) strlcpy(target_file->file_name, f_name->valuestring, sizeof(target_file->file_name));
+                if (cJSON_IsString(f_url)) strlcpy(target_file->url, f_url->valuestring, sizeof(target_file->url));
+                if (cJSON_IsString(f_type)) strlcpy(target_file->filetype, f_type->valuestring, sizeof(target_file->filetype));
+                if (cJSON_IsString(f_md5)) strlcpy(target_file->md5, f_md5->valuestring, sizeof(target_file->md5));
+                if (cJSON_IsNumber(f_size)) target_file->size = (uint32_t)f_size->valueint;
+
+                ESP_LOGI(TAG, "OTA file[%d] parsed: name=%s, type=%s, url=%s, size=%u", file_index,
+                         target_file->file_name, target_file->filetype, target_file->url, target_file->size);
+
+                bool is_software = cJSON_IsString(f_type) && strcmp(f_type->valuestring, "software") == 0;
+                bool is_zip = cJSON_IsString(f_name) && (
+                    (strlen(f_name->valuestring) > 4 && strcmp(f_name->valuestring + strlen(f_name->valuestring) - 4, ".zip") == 0) ||
+                    (strlen(f_name->valuestring) > 4 && strcmp(f_name->valuestring + strlen(f_name->valuestring) - 4, ".bin") == 0)
+                );
+
+                if (is_software) {
+                    selected = item;
+                } else if (selected == NULL && is_zip) {
+                    selected = item;
+                } else if (selected == NULL) {
+                    selected = item;
+                }
+
+                file_index++;
+            }
+            out_info->file_count = file_index;
+
+            if (selected) {
+                cJSON *f_name = cJSON_GetObjectItem(selected, "name");
+                cJSON *f_url = cJSON_GetObjectItem(selected, "url");
+                cJSON *f_type = cJSON_GetObjectItem(selected, "filetype");
+                cJSON *f_md5 = cJSON_GetObjectItem(selected, "md5");
+                cJSON *f_size = cJSON_GetObjectItem(selected, "size");
+
+                if (cJSON_IsString(f_name)) strlcpy(out_info->file_name, f_name->valuestring, sizeof(out_info->file_name));
+                if (cJSON_IsString(f_url)) strlcpy(out_info->url, f_url->valuestring, sizeof(out_info->url));
+                if (cJSON_IsString(f_type)) strlcpy(out_info->filetype, f_type->valuestring, sizeof(out_info->filetype));
+                if (cJSON_IsString(f_md5)) strlcpy(out_info->md5, f_md5->valuestring, sizeof(out_info->md5));
+                if (cJSON_IsNumber(f_size)) out_info->size = (uint32_t)f_size->valueint;
+            }
         }
     }
 

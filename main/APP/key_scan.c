@@ -99,47 +99,87 @@ static void ota_update_task(void *arg)
             ui_set_ota("LOADING...");
             ui_show_download();
 
-            // ⭐ 2. 下载
-            if (download_to_usb(g_download_info.url, g_strWriteLocalFileName) == ESP_OK) {
+            bool download_ok = true;
+            int primary_index = -1;
+            for (int i = 0; i < g_download_info.file_count; i++) {
+                if (strcmp(g_download_info.files[i].url, g_download_info.url) == 0) {
+                    primary_index = i;
+                    break;
+                }
+            }
+            if (primary_index < 0 && g_download_info.file_count > 0) {
+                primary_index = 0;
+            }
 
-                ESP_LOGI("MAIN", "下载完成，开始 MD5 校验...");
+            if (g_download_info.file_count == 0) {
+                ESP_LOGI("MAIN", "No files array in OTA response, downloading single URL %s", g_download_info.url);
+                if (download_to_usb(g_download_info.url, g_strWriteLocalFileName) != ESP_OK) {
+                    ESP_LOGE("MAIN", "下载 %s 失败", g_strWriteLocalFileName);
+                    download_ok = false;
+                }
+            } else {
+                for (int i = 0; i < g_download_info.file_count; i++) {
+                    char file_path[256] = {0};
+                    snprintf(file_path, sizeof(file_path), "%s/%s", USB_PATH, g_download_info.files[i].file_name);
 
-                ui_set_ota("MD5 CHECKING...");
-                lv_timer_enable(false);
-                vTaskDelay(pdMS_TO_TICKS(1000));
+                    ESP_LOGI("MAIN", "Downloading OTA file %d/%d: %s", i + 1, g_download_info.file_count, g_download_info.files[i].file_name);
+                    if (download_to_usb(g_download_info.files[i].url, file_path) != ESP_OK) {
+                        ESP_LOGE("MAIN", "下载 %s 失败", g_download_info.files[i].file_name);
+                        download_ok = false;
+                        break;
+                    }
 
-                // ⭐ 3. MD5 校验
-                if (verify_file_md5(g_strWriteLocalFileName, g_download_info.md5)) {
-                vTaskDelay(pdMS_TO_TICKS(1000));
-                lv_timer_enable(true);
+                    if (g_download_info.files[i].md5[0] != '\0') {
+                        ESP_LOGI("MAIN", "Verifying MD5 for %s...", g_download_info.files[i].file_name);
+                        if (!verify_file_md5(file_path, g_download_info.files[i].md5)) {
+                            ESP_LOGE("MAIN", "MD5 校验失败: %s", g_download_info.files[i].file_name);
+                            download_ok = false;
+                            break;
+                        }
+                    }
 
-                    ESP_LOGI("MAIN", "MD5 校验通过");
+                    if (i == primary_index) {
+                        strcpy(g_strWriteLocalFileName, file_path);
+                    }
+                }
+            }
 
-                    ui_set_ota("MD5 OK");
+            if (download_ok) {
+                ESP_LOGI("MAIN", "下载完成");
+                ui_set_ota("DOWNLOAD COMPLETE");
 
-                    vTaskDelay(pdMS_TO_TICKS(500));
+                if (g_download_info.md5[0] != '\0') {
+                    ESP_LOGI("MAIN", "开始 MD5 校验...");
+                    ui_set_ota("MD5 CHECKING...");
+                    lv_timer_enable(false);
+                    vTaskDelay(pdMS_TO_TICKS(1000));
 
+                    // ⭐ 3. MD5 校验
+                    if (verify_file_md5(g_strWriteLocalFileName, g_download_info.md5)) {
+                        vTaskDelay(pdMS_TO_TICKS(1000));
+                        lv_timer_enable(true);
+
+                        ESP_LOGI("MAIN", "MD5 校验通过");
+                        ui_set_ota("MD5 OK");
+                        vTaskDelay(pdMS_TO_TICKS(500));
+                        ui_set_ota("READY FOR OTA");
+                        // 👉 真正 OTA
+                        // execute_ota_update_from_usb(g_strWriteLocalFileName);
+                    } else {
+                        vTaskDelay(pdMS_TO_TICKS(500));
+                        lv_timer_enable(true);
+
+                        ESP_LOGE("MAIN", "MD5 校验失败");
+                        ui_set_ota("MD5 FAILED");
+                    }
+                } else {
+                    ESP_LOGI("MAIN", "无 MD5，直接进入 READY FOR OTA");
                     ui_set_ota("READY FOR OTA");
-
                     // 👉 真正 OTA
                     // execute_ota_update_from_usb(g_strWriteLocalFileName);
-
-                } else {
-                vTaskDelay(pdMS_TO_TICKS(500));
-                lv_timer_enable(true);
-
-                    ESP_LOGE("MAIN", "MD5 校验失败");
-
-                    ui_set_ota("MD5 FAILED");
-
-                    vTaskDelay(pdMS_TO_TICKS(500));
-
-                    unlink(g_strWriteLocalFileName);
                 }
-
             } else {
                 ESP_LOGE("MAIN", "下载失败");
-
                 ui_set_ota("DOWNLOAD FAILED");
             }
         }
@@ -351,7 +391,7 @@ void key_scan_task(void *arg)
 
                 // If the OTA task is not already running, create it
                 if (xOtaTaskHandle == NULL) {
-                    xTaskCreatePinnedToCore(
+                    BaseType_t ota_result = xTaskCreatePinnedToCore(
                         ota_update_task,        // 任务函数
                         "OTA_Update_Task",      // 任务名称
                         8192,                   // 栈大小：建议从 4096 增加到 8192
@@ -359,9 +399,14 @@ void key_scan_task(void *arg)
                         NULL,                   // 传递给任务的参数
                         5,                      // 优先级：与 key_scan 同级或略低
                         &xOtaTaskHandle,        // 任务句柄
-                        0                       // 【关键】指定运行在核心 1
+                        0                       // 固定到 Core 0
                     );
-                    printf("Starting OTA update in background task.\n");
+                    if (ota_result == pdPASS) {
+                        printf("Starting OTA update in background task.\n");
+                    } else {
+                        xOtaTaskHandle = NULL;
+                        printf("Failed to create OTA update task: %d\n", ota_result);
+                    }
                 } else {
                     printf("OTA update is already running. Please wait.\n");
                 }

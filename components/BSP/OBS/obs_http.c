@@ -261,10 +261,15 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
 
     if (status_code == 206) {
         total_content_length = remaining_length + local_file_size;
+        if (total_content_length < local_file_size) {
+            total_content_length = local_file_size;
+        }
     } else if (status_code == 416) {
         ESP_LOGI("DW", "HTTP 416: File already complete.");
         total_content_length = local_file_size;
         skip_download = true;
+        // 立即发送100%进度，因为文件已完全下载
+        ui_push_download(100, 0.0f, 0, 0, total_content_length, total_content_length);
     } else if (status_code == 200) {
         if (local_file_size > 0) {
             ESP_LOGW("DW", "Server returned 200, restarting...");
@@ -273,6 +278,9 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
             local_file_size = 0;
         }
         total_content_length = remaining_length;
+        if (total_content_length < 0) {
+            total_content_length = 0;
+        }
     } else {
         ESP_LOGE("DW", "HTTP Error: %d", status_code);
         skip_download = true; 
@@ -283,7 +291,6 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
     // --- 6. 数据接收 ---
     int total_read_len = local_file_size;
     if (!skip_download) {
-        int last_percentage = -1;
         uint32_t last_speed_bytes = local_file_size;
         
         char *buffer = malloc(DL_BUFFER_SIZE);
@@ -294,7 +301,8 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
                     fwrite(buffer, 1, read_len, f);
                     total_read_len += read_len;
 
-                    if (total_read_len >= last_speed_bytes + (PROGRESS_UPDATE_INTERVAL) || total_read_len >= total_content_length) {
+                    if (total_read_len >= last_speed_bytes + (PROGRESS_UPDATE_INTERVAL) ||
+                        (total_content_length > 0 && total_read_len >= total_content_length)) {
                         struct timespec now_time;
                         clock_gettime(CLOCK_MONOTONIC, &now_time);
                         double diff_s = (double)(now_time.tv_sec - last_speed_time.tv_sec) + 
@@ -314,10 +322,7 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
                         ESP_LOGI("DW", "[%d%%] Received: %d KB | Speed: %.2f KB/s | ETA: %02d:%02d", 
                                  percentage, total_read_len/1024, instant_speed, eta_min, eta_sec);
 
-                        if (percentage != last_percentage) {
-                            last_percentage = percentage;
-                            ui_push_download(percentage, instant_speed, eta_min, eta_sec, 0, total_content_length);
-                        }
+                        ui_push_download(percentage, instant_speed, eta_min, eta_sec, total_read_len, total_content_length);
                         last_speed_bytes = total_read_len;
                         last_speed_time = now_time;
                     }
@@ -340,6 +345,13 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
 
     lv_timer_enable(true);
     lv_tick_inc(0);
+
+    // 发送最终进度更新
+    if (is_done) {
+        int final_percentage = (total_content_length > 0) ? 100 : 0;
+        ui_push_download(final_percentage, 0.0f, 0, 0, total_content_length, total_content_length);
+    }
+
     if (is_done) {
         return ESP_OK;
     } else {
