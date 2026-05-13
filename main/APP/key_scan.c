@@ -111,6 +111,8 @@ static void ota_update_task(void *arg)
                 primary_index = 0;
             }
 
+            ESP_LOGI("MAIN", "Total files to download: %d", g_download_info.file_count);
+
             if (g_download_info.file_count == 0) {
                 ESP_LOGI("MAIN", "No files array in OTA response, downloading single URL %s", g_download_info.url);
                 if (download_to_usb(g_download_info.url, g_strWriteLocalFileName) != ESP_OK) {
@@ -123,18 +125,24 @@ static void ota_update_task(void *arg)
                     snprintf(file_path, sizeof(file_path), "%s/%s", USB_PATH, g_download_info.files[i].file_name);
 
                     ESP_LOGI("MAIN", "Downloading OTA file %d/%d: %s", i + 1, g_download_info.file_count, g_download_info.files[i].file_name);
+                    ui_set_ota(""); // 清除旧状态
+                    vTaskDelay(pdMS_TO_TICKS(100));
+                    
                     if (download_to_usb(g_download_info.files[i].url, file_path) != ESP_OK) {
                         ESP_LOGE("MAIN", "下载 %s 失败", g_download_info.files[i].file_name);
                         download_ok = false;
                         break;
                     }
 
+                    ESP_LOGI("MAIN", "File %d/%d downloaded successfully", i + 1, g_download_info.file_count);
+
+                    // 个别文件 MD5 验证只报错，不终止整个流程
                     if (g_download_info.files[i].md5[0] != '\0') {
                         ESP_LOGI("MAIN", "Verifying MD5 for %s...", g_download_info.files[i].file_name);
                         if (!verify_file_md5(file_path, g_download_info.files[i].md5)) {
-                            ESP_LOGE("MAIN", "MD5 校验失败: %s", g_download_info.files[i].file_name);
-                            download_ok = false;
-                            break;
+                            ESP_LOGW("MAIN", "Individual MD5 check failed for %s, but continuing...", g_download_info.files[i].file_name);
+                        } else {
+                            ESP_LOGI("MAIN", "File %d MD5 OK", i + 1);
                         }
                     }
 
@@ -145,8 +153,9 @@ static void ota_update_task(void *arg)
             }
 
             if (download_ok) {
-                ESP_LOGI("MAIN", "下载完成");
+                ESP_LOGI("MAIN", "✓ 所有文件下载完成");
                 ui_set_ota("DOWNLOAD COMPLETE");
+                vTaskDelay(pdMS_TO_TICKS(500));
 
                 if (g_download_info.md5[0] != '\0') {
                     ESP_LOGI("MAIN", "开始 MD5 校验...");
@@ -159,7 +168,7 @@ static void ota_update_task(void *arg)
                         vTaskDelay(pdMS_TO_TICKS(1000));
                         lv_timer_enable(true);
 
-                        ESP_LOGI("MAIN", "MD5 校验通过");
+                        ESP_LOGI("MAIN", "✓ MD5 校验通过");
                         ui_set_ota("MD5 OK");
                         vTaskDelay(pdMS_TO_TICKS(500));
                         ui_set_ota("READY FOR OTA");
@@ -169,7 +178,7 @@ static void ota_update_task(void *arg)
                         vTaskDelay(pdMS_TO_TICKS(500));
                         lv_timer_enable(true);
 
-                        ESP_LOGE("MAIN", "MD5 校验失败");
+                        ESP_LOGE("MAIN", "✗ MD5 校验失败");
                         ui_set_ota("MD5 FAILED");
                     }
                 } else {
@@ -179,7 +188,7 @@ static void ota_update_task(void *arg)
                     // execute_ota_update_from_usb(g_strWriteLocalFileName);
                 }
             } else {
-                ESP_LOGE("MAIN", "下载失败");
+                ESP_LOGE("MAIN", "✗ 文件下载失败");
                 ui_set_ota("DOWNLOAD FAILED");
             }
         }

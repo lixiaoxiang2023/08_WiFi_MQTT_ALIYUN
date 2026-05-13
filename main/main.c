@@ -146,7 +146,6 @@ void app_main(void)
     ESP_LOGI("MAIN", "soft version: %s",FW_VERSION);
     vTaskDelay(pdMS_TO_TICKS(3000));
     firmware_storage_check(NULL);
-    ui_create();
     /* ================= 本地任务 ================= */
     //xTaskCreate(mem_monitor_task, "mem_mon", 4096, NULL, 5, NULL);
     // xTaskCreatePinnedToCore(

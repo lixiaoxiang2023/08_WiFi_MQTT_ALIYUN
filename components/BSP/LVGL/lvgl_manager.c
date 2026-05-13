@@ -1,4 +1,5 @@
 #include "lvgl_manager.h"
+#include "esp_lvgl_port.h"
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -219,7 +220,7 @@ static void ui_refresh(void) {
     // 刷新 Download 页
     if (!lv_obj_has_flag(g_pages[UI_PAGE_DOWNLOAD], LV_OBJ_FLAG_HIDDEN)) {
         lv_label_set_text(g_dl_file_name, g_ui_state.download_file);
-        lv_bar_set_value(g_dl_bar, g_ui_state.download_percent, LV_ANIM_ON);
+        lv_bar_set_value(g_dl_bar, g_ui_state.download_percent, LV_ANIM_OFF);
         snprintf(buf, sizeof(buf), "%d%%", g_ui_state.download_percent);
         lv_label_set_text(g_dl_percent, buf);
         snprintf(buf, sizeof(buf), "%.1f KB/s", g_ui_state.download_speed_kb);
@@ -228,7 +229,7 @@ static void ui_refresh(void) {
         if (g_ui_state.ota_status[0] != '\0') {
             lv_label_set_text(g_dl_status, g_ui_state.ota_status);
         } else if (g_ui_state.download_percent >= 100) {
-            lv_label_set_text(g_dl_status, "Complete");
+            lv_label_set_text(g_dl_status, "MD5 CHECKING...");
         } else if (g_ui_state.download_total_bytes > 0) {
             int downloaded_kb = g_ui_state.download_done_bytes / 1024;
             int total_kb = g_ui_state.download_total_bytes / 1024;
@@ -320,54 +321,54 @@ static void ui_switch_page_inner(ui_page_t page) {
 void ui_set_status(const char *t) {
     lvgl_msg_t m = { .type = LVGL_MSG_SET_STATUS };
     if(t) strlcpy(m.text, t, 96);
-    xQueueSend(lvgl_queue, &m, 0);
+    xQueueSend(lvgl_queue, &m, pdMS_TO_TICKS(20));
 }
 void ui_set_ssid(const char *t) {
     lvgl_msg_t m = { .type = LVGL_MSG_SET_SSID };
     if(t) strlcpy(m.text, t, 64);
-    xQueueSend(lvgl_queue, &m, 0);
+    xQueueSend(lvgl_queue, &m, pdMS_TO_TICKS(20));
 }
 void ui_set_ip(const char *t) {
     lvgl_msg_t m = { .type = LVGL_MSG_SET_IP };
     if(t) strlcpy(m.text, t, 32);
-    xQueueSend(lvgl_queue, &m, 0);
+    xQueueSend(lvgl_queue, &m, pdMS_TO_TICKS(20));
 }
 void ui_set_web_ip(const char *t) {
     lvgl_msg_t m = { .type = LVGL_MSG_SET_WEB_IP };
     if(t) strlcpy(m.text, t, 32);
-    xQueueSend(lvgl_queue, &m, 0);
+    xQueueSend(lvgl_queue, &m, pdMS_TO_TICKS(20));
 }
 void ui_set_ota(const char *t) {
     lvgl_msg_t m = { .type = LVGL_MSG_SET_OTA_TEXT };
     if(t) strlcpy(m.text, t, 96);
-    xQueueSend(lvgl_queue, &m, 0);
+    xQueueSend(lvgl_queue, &m, pdMS_TO_TICKS(20));
 }
 void ui_set_wifi_mode(bool mode) {
     lvgl_msg_t m = { .type = LVGL_MSG_SET_WIFI_MODE, .value = mode };
-    xQueueSend(lvgl_queue, &m, 0);
+    xQueueSend(lvgl_queue, &m, pdMS_TO_TICKS(20));
 }
 void ui_set_wifi_connected(bool c) {
     lvgl_msg_t m = { .type = LVGL_MSG_SET_WIFI_CONNECTED, .value = c };
-    xQueueSend(lvgl_queue, &m, 0);
+    xQueueSend(lvgl_queue, &m, pdMS_TO_TICKS(20));
 }
 void ui_set_usb_connected(bool c) {
     lvgl_msg_t m = { .type = LVGL_MSG_SET_USB_CONNECTED, .value = c };
-    xQueueSend(lvgl_queue, &m, 0);
+    xQueueSend(lvgl_queue, &m, pdMS_TO_TICKS(20));
 }
 void ui_show_page(ui_page_t p) {
     lvgl_msg_t m = { .type = LVGL_MSG_SHOW_PAGE, .value = p };
-    xQueueSend(lvgl_queue, &m, 0);
+    xQueueSend(lvgl_queue, &m, pdMS_TO_TICKS(20));
 }
 void ui_set_download_info(const char *fn, uint32_t size) {
     lvgl_msg_t m = { .type = LVGL_MSG_SET_DOWNLOAD_META, .value = (int32_t)size };
     if(fn) strlcpy(m.text, fn, 64);
-    xQueueSend(lvgl_queue, &m, 0);
+    xQueueSend(lvgl_queue, &m, pdMS_TO_TICKS(20));
 }
 void ui_push_download(int p, float s, int em, int es, uint32_t db, uint32_t tb) {
     lvgl_msg_t m = { .type = LVGL_MSG_DOWNLOAD_PROGRESS };
     download_ui_msg_t payload = {p, s, em, es, db, tb};
     memcpy(m.text, &payload, sizeof(payload));
-    xQueueSend(lvgl_queue, &m, 0);
+    xQueueSend(lvgl_queue, &m, pdMS_TO_TICKS(20));
 }
 void ui_create(void) {
     lv_obj_t *scr = lv_scr_act();

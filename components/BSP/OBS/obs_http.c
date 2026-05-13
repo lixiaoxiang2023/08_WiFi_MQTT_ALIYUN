@@ -191,10 +191,6 @@ static void obs_state_reset(void)
 
 esp_err_t download_to_usb(const char *url, const char *filename) {
     if (url == NULL || filename == NULL) return ESP_ERR_INVALID_ARG;
-   vTaskDelay(pdMS_TO_TICKS(1000));
-
-   lv_timer_enable(false);
-   vTaskDelay(pdMS_TO_TICKS(100));
 
     // --- 1. 获取本地已下载的大小 ---
     long local_file_size = 0;
@@ -203,18 +199,17 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
         local_file_size = st.st_size;
         ESP_LOGI("DW", "Detect local file: %ld bytes", local_file_size);
     }
-    lv_timer_enable(true);
 
     // --- 2. UI 初始化 ---
     const char *short_name = strrchr(filename, '/');
     short_name = (short_name == NULL) ? filename : (short_name + 1);
 
     ESP_LOGI("DW", "filename:%s", short_name);
+    ui_set_ota("");
     ui_set_download_info(short_name, (uint32_t)((local_file_size > 0) ? local_file_size : 0));
     ui_show_download();
     ui_push_download(0, 0.0f, 0, 0,0,0); // 初始化UI显示
     // --- 3. 打开文件 ---
-    lv_timer_enable(false);
 
     FILE *f = fopen(filename, "ab");
     if (f == NULL) {
@@ -325,6 +320,7 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
                         ui_push_download(percentage, instant_speed, eta_min, eta_sec, total_read_len, total_content_length);
                         last_speed_bytes = total_read_len;
                         last_speed_time = now_time;
+                        vTaskDelay(pdMS_TO_TICKS(1));
                     }
                 } else {
                     err = (read_len == 0 && esp_http_client_is_complete_data_received(client)) ? ESP_OK : ESP_FAIL;
