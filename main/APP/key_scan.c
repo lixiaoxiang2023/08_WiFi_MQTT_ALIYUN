@@ -361,7 +361,7 @@ void key_scan_task(void *arg)
     //     //ESP_LOGW("UI", "System busy, key ignored.");
     //     vTaskDelay(pdMS_TO_TICKS(100));
     // }
-    wifi_switch_mode();
+    //wifi_switch_mode();
 
     while(1)
     {

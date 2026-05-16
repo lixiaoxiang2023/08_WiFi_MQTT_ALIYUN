@@ -553,12 +553,12 @@ void wifi_background_task(void *pv)
 
         if (http_login(&g_strResp)) {
             if (http_get_all_products(g_strResp.token)) {
-                sync_success = true;
+                sync_success = true;   
+                 vTaskDelay(pdMS_TO_TICKS(2000));
             }
         }
         if (!sync_success) vTaskDelay(pdMS_TO_TICKS(2000));
     }
-
     // --- 步骤 5 ---
     if (sync_success) {
         g_sys_status = SYS_READY; 

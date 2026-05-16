@@ -1805,6 +1805,11 @@ CONFIG_WIFI_PROV_STA_ALL_CHANNEL_SCAN=y
 # end of Wi-Fi Provisioning Manager
 
 #
+# ESP LVGL PORT
+#
+# end of ESP LVGL PORT
+
+#
 # LVGL configuration
 #
 CONFIG_LV_CONF_SKIP=y
@@ -2215,11 +2220,6 @@ CONFIG_TINYUSB_NET_MODE_NONE=y
 CONFIG_TINYUSB_VENDOR_COUNT=0
 # end of Vendor Specific Interface
 # end of TinyUSB Stack
-
-#
-# ESP LVGL PORT
-#
-# end of ESP LVGL PORT
 # end of Component config
 
 # CONFIG_IDF_EXPERIMENTAL_FEATURES is not set

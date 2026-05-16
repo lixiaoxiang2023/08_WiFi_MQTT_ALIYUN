@@ -102,15 +102,15 @@ static void ui_create_boot_page(void) {
 
     lv_obj_t *sp = lv_spinner_create(g_boot_card, 1000, 60);
     lv_obj_set_size(sp, 55, 55);
-    lv_obj_align(sp, LV_ALIGN_CENTER, 0, -20);
+    lv_obj_align(sp, LV_ALIGN_CENTER, 0, -40);
     lv_obj_set_style_arc_color(sp, MD_COLOR_PRIMARY, LV_PART_INDICATOR);
 
     g_boot_status = lv_label_create(g_boot_card);
-    lv_obj_set_width(g_boot_status, 160);
+    lv_obj_set_width(g_boot_status, 100);
     lv_label_set_long_mode(g_boot_status, LV_LABEL_LONG_DOT);  // 长文本添加省略号
     lv_obj_set_style_text_align(g_boot_status, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(g_boot_status, &lv_font_montserrat_14, 0);
-    lv_obj_align(g_boot_status, LV_ALIGN_BOTTOM_MID, 0, -5);
+    lv_obj_align(g_boot_status, LV_ALIGN_TOP_MID, 0, 70);
 }
 /* --- 优化后的 WiFi 页面创建 (布局调整，避免超出界面) --- */
 static void ui_create_wifi_page(void) {
