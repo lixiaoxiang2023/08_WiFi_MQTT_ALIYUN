@@ -225,7 +225,7 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
     esp_http_client_config_t config = {
         .url = url,
         .method = HTTP_METHOD_GET,
-        .timeout_ms = 40000,
+        .timeout_ms = 4000,  // ⭐ 减少至 15 秒（从 40 秒）- 网络不稳定时快速失败
         .buffer_size = 16384,     
         .buffer_size_tx = 4096,
         .skip_cert_common_name_check = true,
@@ -239,11 +239,20 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
         esp_http_client_set_header(client, "Range", range_header);
     }
 
+    // ⭐ 网络连接可能堵塞，提前通知 UI 并让步
+    ui_push_download(0, 0.0f, 0, 0, local_file_size, local_file_size);
+    vTaskDelay(pdMS_TO_TICKS(10));
+    
     if (esp_http_client_open(client, 0) != ESP_OK) {
         esp_http_client_cleanup(client); fclose(f); return ESP_FAIL;
     }
+    
+    // ⭐ 连接成功后让步，给 LVGL 机会更新
+    vTaskDelay(pdMS_TO_TICKS(5));
 
+    // ⭐ 获取响应头可能堵塞，定期让步
     int64_t remaining_length = esp_http_client_fetch_headers(client);
+    vTaskDelay(pdMS_TO_TICKS(5));
     int status_code = esp_http_client_get_status_code(client);    
     esp_err_t err = ESP_OK;
 
@@ -291,7 +300,14 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
         char *buffer = malloc(DL_BUFFER_SIZE);
         if (buffer) {
             while (true) {
+                // ⭐ 网络读取每次可能因延迟而堵塞，但读取后必须让步
                 int read_len = esp_http_client_read(client, buffer, DL_BUFFER_SIZE);
+                
+                // ⭐ 重要：即使没有数据，也要定期让步给 LVGL（除非连接完成）
+                if (read_len <= 0 && !esp_http_client_is_complete_data_received(client)) {
+                    vTaskDelay(pdMS_TO_TICKS(5));  // 网络延迟，让出 CPU
+                }
+                
                 if (read_len > 0) {
                     fwrite(buffer, 1, read_len, f);
                     total_read_len += read_len;
@@ -320,7 +336,10 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
                         ui_push_download(percentage, instant_speed, eta_min, eta_sec, total_read_len, total_content_length);
                         last_speed_bytes = total_read_len;
                         last_speed_time = now_time;
-                        vTaskDelay(pdMS_TO_TICKS(1));
+                        vTaskDelay(pdMS_TO_TICKS(5));  // ⭐ 每次进度更新后让步
+                    } else {
+                        // ⭐ 即使进度未更新，也偶尔让步
+                        vTaskDelay(pdMS_TO_TICKS(2));
                     }
                 } else {
                     err = (read_len == 0 && esp_http_client_is_complete_data_received(client)) ? ESP_OK : ESP_FAIL;
@@ -339,7 +358,7 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
     fclose(f);
     esp_http_client_cleanup(client);
 
-    lv_timer_enable(true);
+   // lv_timer_enable(true);
     lv_tick_inc(0);
 
     // 发送最终进度更新
@@ -626,7 +645,7 @@ bool http_get_all_products(const char *token)
     esp_http_client_config_t config = {
         .url = GET_PRODUCTS_URL,
         .method = HTTP_METHOD_GET,     // 
-        .timeout_ms = 30000,
+        .timeout_ms = 4000,  // ⭐ 减少至 10 秒（从 30 秒）
         .event_handler = urit_http_event_handler,
         .user_data = &g_http_resp,
         .buffer_size = 2048,           // 预防 Header 过长
@@ -770,7 +789,7 @@ bool http_execute_get_request(const char *url, const char *token) {
     esp_http_client_config_t config = {
         .url = url,
         .method = HTTP_METHOD_GET,
-        .timeout_ms = 30000, 
+        .timeout_ms = 4000,  // ⭐ 减少至 10 秒（从 30 秒）- 网络不稳定时快速失败
         .event_handler = urit_http_event_handler,
         .user_data = &g_http_resp,
         .buffer_size = 2048,
@@ -1197,9 +1216,17 @@ bool verify_file_md5(const char *path, const char *expected_md5) {
     }
 
     size_t read_len;
+    uint32_t bytes_processed = 0;
     ESP_LOGI("MD5", "Verifying file, please wait...");
     while ((read_len = fread(buffer, 1, buf_size, f)) > 0) {
         mbedtls_md5_update(&ctx, buffer, read_len);
+        bytes_processed += read_len;
+        
+        // ⭐ 每处理 512KB 让出一次 CPU，防止 LVGL 任务饥饿
+        if (bytes_processed >= (512 * 1024)) {
+            vTaskDelay(pdMS_TO_TICKS(1));  // 让出 CPU 给其他任务
+            bytes_processed = 0;
+        }
     }
 
     // ⭐ 优化2：检查是否因读取错误而停止

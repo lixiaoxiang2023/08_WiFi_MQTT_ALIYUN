@@ -74,6 +74,7 @@ static void ota_update_task(void *arg)
 
     login_response_t resp = {0};
 
+    // ⭐ 网络操作可能长时间堵塞，每个操作前后都要让步
     if (http_login(&resp)) {
 
         ESP_LOGI("MAIN", "登录成功, token=%s", resp.token);
@@ -160,13 +161,11 @@ static void ota_update_task(void *arg)
                 if (g_download_info.md5[0] != '\0') {
                     ESP_LOGI("MAIN", "开始 MD5 校验...");
                     ui_set_ota("MD5 CHECKING...");
-                    lv_timer_enable(false);
                     vTaskDelay(pdMS_TO_TICKS(1000));
 
                     // ⭐ 3. MD5 校验
                     if (verify_file_md5(g_strWriteLocalFileName, g_download_info.md5)) {
                         vTaskDelay(pdMS_TO_TICKS(1000));
-                        lv_timer_enable(true);
 
                         ESP_LOGI("MAIN", "✓ MD5 校验通过");
                         ui_set_ota("MD5 OK");
@@ -176,7 +175,6 @@ static void ota_update_task(void *arg)
                         // execute_ota_update_from_usb(g_strWriteLocalFileName);
                     } else {
                         vTaskDelay(pdMS_TO_TICKS(500));
-                        lv_timer_enable(true);
 
                         ESP_LOGE("MAIN", "✗ MD5 校验失败");
                         ui_set_ota("MD5 FAILED");
@@ -316,17 +314,13 @@ esp_err_t run_full_upgrade_chain(const char *token) {
         ESP_LOGI("MAIN", "准备下载，目标路径: %s", full_path);
         
         if (download_to_usb(final_download_url, full_path) == ESP_OK) {
-            lv_timer_enable(false);
-
             if (verify_file_md5(full_path, md5_expect)) {
                 ESP_LOGW("MAIN", "MD5 校验成功，开始 OTA 写入...");
                 ota_from_usb(full_path);
-                lv_timer_enable(true);
                 return ESP_OK;
             } else {
                 ESP_LOGE("MAIN", "MD5 校验不匹配，删除文件");
                 unlink(full_path);
-                lv_timer_enable(true);
             }
         } else {
             ESP_LOGE("MAIN", "download_to_usb 执行失败");
@@ -406,7 +400,7 @@ void key_scan_task(void *arg)
                         8192,                   // 栈大小：建议从 4096 增加到 8192
                                                 // (OTA 和 HTTP 逻辑较深，大一点更安全)
                         NULL,                   // 传递给任务的参数
-                        5,                      // 优先级：与 key_scan 同级或略低
+                        10,                      // 优先级：提升到 10，确保 OTA 任务能迅速响应
                         &xOtaTaskHandle,        // 任务句柄
                         0                       // 固定到 Core 0
                     );
@@ -427,9 +421,9 @@ void key_scan_task(void *arg)
                 xTaskCreatePinnedToCore(
                     usb_copy_task,
                     "usb_copy",
-                    4096,
+                    4096*2,
                     NULL,
-                    4,
+                    10,
                     NULL,
                     1
                 );

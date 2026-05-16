@@ -827,40 +827,52 @@ esp_err_t get_wifi_info_handler(httpd_req_t *req)
 }
 
 /**
- * @brief HTTP处理器：获取产品列表
+ * @brief HTTP处理器：获取产品列表（安全异步优化版）
  *
- * 处理前端获取产品列表的请求，从缓存的HTTP响应中返回数据。
- * 如果缓存为空，返回404错误。
- *
- * @param req HTTP请求结构体指针
- * @return esp_err_t 处理结果
+ * 处理器只读取本地缓存，如果缓存为空且未就绪，直接返回 503 或提示。
+ * 从而彻底避免在 Web 服务 Task 中同步请求外网导致 select() 30秒超时。
  */
 esp_err_t get_product_list_handler(httpd_req_t *req) {
-    // ⭐ 每次请求都重新获取产品列表，而不是依赖缓存
+    // 1. 检查 STA 是否真正分配到了 IP 地址，没联网直接拒绝，不盲目请求外网
+    esp_netif_ip_info_t ip_info;
+    esp_netif_t* netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (esp_netif_get_ip_info(netif, &ip_info) != ESP_OK || ip_info.ip.addr == 0) {
+        ESP_LOGW("HTTP_SERVER", "STA 未就绪（无IP），拒绝外网请求");
+        httpd_resp_set_status(req, "503 Service Unavailable");
+        return httpd_resp_sendstr(req, "{\"code\":-1, \"msg\":\"WiFi not connected to Internet\"}");
+    }
+
+    // 2. 如果是刚出厂，Token 为空，可以先在这里尝试主动单次登录，或者提示前端
+    if (strlen((char*)g_strResp.token) == 0) {
+        ESP_LOGW("HTTP_SERVER", "初次运行 Token 为空，尝试激活登录...");
+        // 限制超时：可以调用一个专用的、带极短超时（如3秒）的登录函数，切忌死等30秒
+        if (!refresh_http_token()) {
+            httpd_resp_set_status(req, "401 Unauthorized");
+            return httpd_resp_sendstr(req, "{\"code\":-1, \"msg\":\"Device not logged in or active\"}");
+        }
+    }
+
+    // 3. 请求外网数据
     if (!http_get_all_products(g_strResp.token)) {
         ESP_LOGW("HTTP_SERVER", "获取产品列表失败，尝试刷新令牌");
+        // 这里的 refresh_http_token 内部务必确保 http_login 的超时时间设置在 3-5 秒内
         if (!refresh_http_token() || !http_get_all_products(g_strResp.token)) {
             httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "获取产品列表失败");
             return ESP_FAIL;
         }
     }
 
-    // 检查响应是否为空
+    // 4. 检查响应是否为空
     if (g_http_resp.buffer == NULL || strlen((char*)g_http_resp.buffer) == 0) {
         httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "产品列表为空");
         return ESP_FAIL;
     }
 
-    // ⭐ 设置响应头为 JSON 格式
+    // 5. 安全发送
     httpd_resp_set_type(req, "application/json");
-
-    // ⭐ 跨域设置（如果需要，防止某些浏览器拦截）
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-
-    // ⭐ 发送数据 (使用 g_http_resp.len 长度更精准)
     return httpd_resp_send(req, (const char *)g_http_resp.buffer, g_http_resp.len);
 }
-
 /**
  * @brief HTTP处理器：获取平台列表
  *

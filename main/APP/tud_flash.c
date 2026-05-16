@@ -281,11 +281,9 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void *buff
     if (lun >= LOGICAL_DISK_NUM) return 0;
 
     const uint32_t block_count = bufsize / s_disk_block_size;
-    lv_timer_enable(false);
-    vTaskDelay(pdMS_TO_TICKS(10));
+    //vTaskDelay(pdMS_TO_TICKS(10));
     /* 磁盘读取 */
     disk_read(s_pdrv, buffer, lba, block_count);
-    lv_timer_enable(true);
 
     return block_count * s_disk_block_size;
 }
@@ -303,13 +301,11 @@ int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset, uint8_t *
 {
     (void) offset;
     if (lun >= LOGICAL_DISK_NUM) return 0;
-    lv_timer_enable(false);
     const uint32_t block_count = bufsize / s_disk_block_size;
-    vTaskDelay(pdMS_TO_TICKS(10));
+    //vTaskDelay(pdMS_TO_TICKS(10));
 
     /* 磁盘写入 */
     disk_write(s_pdrv, buffer, lba, block_count);
-    lv_timer_enable(true);
 
     return block_count * s_disk_block_size;
 }
@@ -483,7 +479,6 @@ void tud_usb_flash(void)
 }
 
 
-
 void usb_copy_task(void *arg)
 {
     file_copy_msg_t msg;
@@ -491,50 +486,59 @@ void usb_copy_task(void *arg)
 
     usb_copy_queue = xQueueCreate(2, sizeof(file_copy_msg_t));
 
+    // 建议在外部申请一个较大的缓冲区，使用内部 RAM 以获得最快速度
+    // 如果内部 RAM 不足，可以使用 heap_caps_malloc 申请 PSRAM
+    const size_t buf_size = 16 * 1024; // 16KB 缓冲区
+    uint8_t *buf = (uint8_t *)heap_caps_malloc(buf_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!buf) {
+        ESP_LOGE("USB", "Failed to allocate copy buffer!");
+        vTaskDelete(NULL);
+    }
+
     while (1) {
         if (xQueueReceive(usb_copy_queue, &msg, portMAX_DELAY)) {
-            lv_timer_enable(false);
-            vTaskDelay(pdMS_TO_TICKS(1000));
+            // 给系统一点准备时间，但不要在循环里延时
+            vTaskDelay(pdMS_TO_TICKS(100)); 
 
-            ESP_LOGI("USB", "copy %s -> %s", msg.src, msg.dst);
+            ESP_LOGI("USB", "Copying %s -> %s", msg.src, msg.dst);
 
             FILE *src = fopen(msg.src, "rb");
-            if (!src) {
-                ESP_LOGE("USB", "open src failed");
-                continue;
-            }
-
             FILE *dst = fopen(msg.dst, "wb");
-            if (!dst) {
-                ESP_LOGE("USB", "open dst failed");
-                fclose(src);
+
+            if (!src || !dst) {
+                ESP_LOGE("USB", "File open failed!");
+                if (src) fclose(src);
+                if (dst) fclose(dst);
                 continue;
             }
 
-            uint8_t buf[1024];
             size_t len;
+            // 记录时间用于调试速度
+            uint32_t start_tick = xTaskGetTickCount();
 
-            while ((len = fread(buf, 1, sizeof(buf), src)) > 0) {
+            while ((len = fread(buf, 1, buf_size, src)) > 0) {
                 if (fwrite(buf, 1, len, dst) != len) {
-                    ESP_LOGE("USB", "write failed");
+                    ESP_LOGE("USB", "Write failed");
                     break;
                 }
-                vTaskDelay(1); // 喂狗 + 让 USB 跑
+                // 关键：不要在这里使用 vTaskDelay(1)！它会让速度强制降到 <100KB/s
+                // 如果担心喂狗问题，可以使用 taskYIELD()
+                taskYIELD(); 
             }
+
+            uint32_t end_tick = xTaskGetTickCount();
+            ESP_LOGI("USB", "Copy done in %ld ms", (end_tick - start_tick) * portTICK_PERIOD_MS);
 
             fflush(dst);
             fclose(dst);
             fclose(src);
 
-            ESP_LOGI("USB", "copy done");
-
-            /* ========= 核心：强制主机重新识别 ========= */
-            ESP_LOGW("USB", "re-enumerate USB MSC");
-
+            /* ========= 强制主机重新识别 ========= */
+            ESP_LOGW("USB", "Re-enumerating USB MSC...");
             tud_disconnect();
-            vTaskDelay(pdMS_TO_TICKS(800));
+            vTaskDelay(pdMS_TO_TICKS(1000)); // 延长断开时间确保 Windows 感知到
             tud_connect();
-            lv_timer_enable(true);
         }
     }
+    free(buf); // 实际上不会执行到这里
 }
