@@ -106,7 +106,7 @@ static void ui_create_boot_page(void) {
     lv_obj_set_style_arc_color(sp, MD_COLOR_PRIMARY, LV_PART_INDICATOR);
 
     g_boot_status = lv_label_create(g_boot_card);
-    lv_obj_set_width(g_boot_status, 100);
+    lv_obj_set_width(g_boot_status, 300);
     lv_label_set_long_mode(g_boot_status, LV_LABEL_LONG_DOT);  // 长文本添加省略号
     lv_obj_set_style_text_align(g_boot_status, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(g_boot_status, &lv_font_montserrat_14, 0);

@@ -22,7 +22,7 @@ typedef enum {
     WIFI_MODE_STA_ONLY      // 纯 STA
 } wifi_user_mode_t;
 
-static wifi_user_mode_t g_wifi_user_mode = WIFI_MODE_WEB_CONFIG;
+static wifi_user_mode_t g_wifi_user_mode = WIFI_MODE_STA_ONLY;
 void wifi_switch_mode(void)
 {
     ui_set_status("System Switching...");
@@ -73,6 +73,7 @@ static void ota_update_task(void *arg)
     printf("Starting OTA update task...\n");
 
     login_response_t resp = {0};
+    ui_show_download();
 
     // ⭐ 网络操作可能长时间堵塞，每个操作前后都要让步
     if (http_login(&resp)) {
@@ -85,6 +86,7 @@ static void ota_update_task(void *arg)
         if (http_get_version(resp.token)) {
 
             ui_set_ota("GET VERSION OK");
+            ESP_LOGI("MAIN", "GET VERSION OK");
 
             char buf[256] = {0};
             const char *file_name = g_download_info.file_name;
@@ -98,7 +100,9 @@ static void ota_update_task(void *arg)
             strcpy(g_strWriteLocalFileName, buf);
 
             ui_set_ota("LOADING...");
-            ui_show_download();
+            ESP_LOGI("MAIN", "LOADING");
+
+           // ui_show_download();
 
             bool download_ok = true;
             int primary_index = -1;
@@ -118,6 +122,7 @@ static void ota_update_task(void *arg)
                 ESP_LOGI("MAIN", "No files array in OTA response, downloading single URL %s", g_download_info.url);
                 if (download_to_usb(g_download_info.url, g_strWriteLocalFileName) != ESP_OK) {
                     ESP_LOGE("MAIN", "下载 %s 失败", g_strWriteLocalFileName);
+                    
                     download_ok = false;
                 }
             } else {
@@ -189,6 +194,10 @@ static void ota_update_task(void *arg)
                 ESP_LOGE("MAIN", "✗ 文件下载失败");
                 ui_set_ota("DOWNLOAD FAILED");
             }
+        }
+        else
+        {
+            ui_set_ota("version ERROR");
         }
 
     } else {

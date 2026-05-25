@@ -214,6 +214,7 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
     FILE *f = fopen(filename, "ab");
     if (f == NULL) {
         ESP_LOGE("DW", "无法打开文件: %s, 原因: %s", filename, strerror(errno));
+
         return ESP_FAIL;
     }
 
