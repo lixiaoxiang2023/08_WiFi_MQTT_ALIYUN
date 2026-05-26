@@ -1805,11 +1805,6 @@ CONFIG_WIFI_PROV_STA_ALL_CHANNEL_SCAN=y
 # end of Wi-Fi Provisioning Manager
 
 #
-# ESP LVGL PORT
-#
-# end of ESP LVGL PORT
-
-#
 # TinyUSB Stack
 #
 CONFIG_TINYUSB_DEBUG_LEVEL=0
@@ -1915,6 +1910,11 @@ CONFIG_TINYUSB_NET_MODE_NONE=y
 CONFIG_TINYUSB_VENDOR_COUNT=0
 # end of Vendor Specific Interface
 # end of TinyUSB Stack
+
+#
+# ESP LVGL PORT
+#
+# end of ESP LVGL PORT
 
 #
 # LVGL configuration

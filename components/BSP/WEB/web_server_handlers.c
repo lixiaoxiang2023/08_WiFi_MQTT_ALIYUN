@@ -852,6 +852,7 @@ esp_err_t get_product_list_handler(httpd_req_t *req) {
         }
     }
 
+    
     // 3. 请求外网数据
     if (!http_get_all_products(g_strResp.token)) {
         ESP_LOGW("HTTP_SERVER", "获取产品列表失败，尝试刷新令牌");
@@ -882,22 +883,21 @@ esp_err_t get_product_list_handler(httpd_req_t *req) {
  * @param req HTTP请求结构体指针
  * @return esp_err_t 处理结果
  */
+/**
+ * @brief HTTP处理器：获取平台列表
+ *
+ * 处理前端GET /api/get_platforms?id=xxx请求，根据产品ID获取对应的平台列表。
+ * 支持 401 鉴权失效自动二次刷新 Token 机制。
+ *
+ * @param req HTTP请求结构体指针
+ * @return esp_err_t 处理结果
+ */
 esp_err_t get_platforms_handler(httpd_req_t *req) {
     char buf[128];
-    char id_str[16] = {0}; // 稍微加大缓冲区，确保 64 位 ID 安全
+    char id_str[16] = {0}; 
     esp_err_t err;
 
-    // 1. 预检：检查 STA 是否已连接到外网 (可选，依赖你的事件组定义)
-    /*
-    EventBits_t bits = xEventGroupGetBits(s_wifi_event_group);
-    if (!(bits & WIFI_CONNECTED_BIT)) {
-        ESP_LOGW("HTTP_SERVER", "STA 未联网，拒绝请求");
-        httpd_resp_set_status(req, "503 Service Unavailable");
-        return httpd_resp_sendstr(req, "{\"code\":-1, \"msg\":\"WiFi未连接到互联网\"}");
-    }
-    */
-
-    // 2. 解析 URL 参数
+    // 1. 解析 URL 参数
     err = httpd_req_get_url_query_str(req, buf, sizeof(buf));
     if (err != ESP_OK) {
         ESP_LOGW("HTTP_SERVER", "URL 无查询参数");
@@ -905,57 +905,87 @@ esp_err_t get_platforms_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
 
-    // 3. 提取 ID 字段
+    // 2. 提取 ID 字段
     if (httpd_query_key_value(buf, "id", id_str, sizeof(id_str)) != ESP_OK) {
         ESP_LOGW("HTTP_SERVER", "参数中缺少 ID");
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "需要ID参数");
         return ESP_FAIL;
     }
 
-    // 4. 将字符串安全转为 int64_t
+    // 3. 将字符串安全转为 int64_t
     int64_t product_id = atoll(id_str);
     if (product_id <= 0) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "无效的产品ID");
         return ESP_FAIL;
     }
 
-    
     ESP_LOGI("HTTP_SERVER", "正在代发请求：获取产品 ID %lld 的平台列表", product_id);
-    // 检查 STA 是否分配到了 IP 地址
-        esp_netif_ip_info_t ip_info;
-        esp_netif_t* netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-        if (esp_netif_get_ip_info(netif, &ip_info) != ESP_OK || ip_info.ip.addr == 0) {
-            ESP_LOGE("HTTP_SERVER", "STA 未就绪（无IP），放弃请求外网");
-            httpd_resp_set_status(req, "503 Service Unavailable");
-            return httpd_resp_sendstr(req, "{\"code\":-1, \"msg\":\"ESP32 is not connected to Internet\"}");
+    
+    // 4. 检查 STA 是否分配到了 IP 地址
+    esp_netif_ip_info_t ip_info;
+    esp_netif_t* netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (esp_netif_get_ip_info(netif, &ip_info) != ESP_OK || ip_info.ip.addr == 0) {
+        ESP_LOGE("HTTP_SERVER", "STA 未就绪（无IP），放弃请求外网");
+        httpd_resp_set_status(req, "503 Service Unavailable");
+        return httpd_resp_sendstr(req, "{\"code\":-1, \"msg\":\"ESP32 is not connected to Internet\"}");
+    }
+
+    // 5. 循环执行机制：支持单次 Token 过期自动刷新重试
+    bool do_request_success = false;
+    for (int retry = 0; retry < 2; retry++) {
+        
+        // 发起远程 HTTP 请求
+        if (http_get_product_platforms(g_strResp.token, product_id)) {
+            
+            // 强行增加安全边界：确保 buffer 存在且给字符串强行封口
+            if (g_http_resp.buffer && g_http_resp.len > 0) {
+                g_http_resp.buffer[g_http_resp.len] = '\0'; // 彻底解决双重打印和旧数据混淆故障
+                
+                // 核心解耦：解析 Body 内部业务码，揪出隐藏的 401 错误
+                cJSON *json = cJSON_Parse((const char*)g_http_resp.buffer);
+                if (json) {
+                    cJSON *code_item = cJSON_GetObjectItem(json, "code");
+                    if (code_item && code_item->valueint == 401) {
+                        ESP_LOGW("HTTP_SERVER", "检测到云端 401 越权(user_no_login)，尝试刷新 Token...");
+                        cJSON_Delete(json);
+                        
+                        if (refresh_http_token()) {
+                            continue; // 带着新生成的全局 g_strResp.token 进入 retry=1
+                        } else {
+                            break; // 刷新登录失败，直接出局
+                        }
+                    }
+                    cJSON_Delete(json);
+                }
+                
+                // 如果没有触发 401 异常拦截，说明真正拿到了数据
+                do_request_success = true;
+                break;
+            }
         }
-    // 5. 调用外部 API 请求函数 (使用传入的 Token)
-    // 假设 g_strResp.token 是你的局部/全局变量
-    if (!http_get_product_platforms(g_strResp.token, product_id)) {
-        ESP_LOGW("HTTP_SERVER", "获取平台列表失败，尝试刷新令牌");
-        if (!refresh_http_token() || !http_get_product_platforms(g_strResp.token, product_id)) {
-            ESP_LOGE("HTTP_SERVER", "服务器 API 请求失败");
-            httpd_resp_set_status(req, "502 Bad Gateway");
-            return httpd_resp_sendstr(req, "{\"code\":-1, \"msg\":\"Remote server timeout or error\"}");
+        
+        // 如果 http 传输层直接失败了，也有可能是连接断开，尝试刷一次凭证
+        ESP_LOGW("HTTP_SERVER", "底层传输失败，正在重试同步流程...");
+        if (!refresh_http_token()) {
+            break; 
         }
     }
 
-    // 确保 buffer 中有数据
-    if (g_http_resp.buffer && strlen((char*)g_http_resp.buffer) > 0) {
-        // 缓存平台列表JSON用于后续解析
+    // 6. 数据消费与下发
+    if (do_request_success && g_http_resp.buffer && strlen((char*)g_http_resp.buffer) > 0) {
+        // 缓存平台列表JSON用于配置保存时联动检索
         free(platform_list_json);
         platform_list_json = strdup((char*)g_http_resp.buffer);
         
-        httpd_resp_set_type(req, "application/json");
-        // 设置跨域（如果前端调试需要）
+        httpd_resp_set_type(req, "application/json; charset=utf-8");
         httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*"); 
         return httpd_resp_send(req, (char*)g_http_resp.buffer, g_http_resp.len);
     }
 
-    // 6. 走到这里说明后端 API 请求失败或超时
-    ESP_LOGE("HTTP_SERVER", "服务器 API 请求失败");
+    // 7. 兜底失败分支：如果重试2次依然崩了，优雅拒绝网页端
+    ESP_LOGE("HTTP_SERVER", "代发云端后台 API 请求最终宣告失败");
     httpd_resp_set_status(req, "502 Bad Gateway");
-    return httpd_resp_sendstr(req, "{\"code\":-1, \"msg\":\"Remote server timeout or error\"}");
+    return httpd_resp_sendstr(req, "{\"code\":-1, \"msg\":\"Remote server auth failed or connection timeout\"}");
 }
 
 /**

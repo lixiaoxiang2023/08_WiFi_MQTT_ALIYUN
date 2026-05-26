@@ -163,10 +163,10 @@ static esp_err_t urit_http_event_handler(esp_http_client_event_t *evt)
     case HTTP_EVENT_ON_FINISH:
         ESP_LOGI("HTTP", "Finish");
         // 打印接收到的完整JSON响应
-        if (g_http_resp.buffer && g_http_resp.len > 0) {
-            ESP_LOGI("HTTP", "响应成功:");
-            ESP_LOGI("HTTP", "%.*s", g_http_resp.len, g_http_resp.buffer);
-        }
+        // if (g_http_resp.buffer && g_http_resp.len > 0) {
+        //     ESP_LOGI("HTTP", "响应成功:");
+        //     ESP_LOGI("HTTP", "%.*s", g_http_resp.len, g_http_resp.buffer);
+        // }
         break;
 
     case HTTP_EVENT_DISCONNECTED:
