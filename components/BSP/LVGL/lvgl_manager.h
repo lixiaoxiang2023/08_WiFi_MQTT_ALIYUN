@@ -26,7 +26,8 @@ typedef enum {
     LVGL_MSG_SET_USB_CONNECTED,
     LVGL_MSG_SHOW_PAGE,
     LVGL_MSG_SET_DOWNLOAD_META,
-    LVGL_MSG_DOWNLOAD_PROGRESS
+    LVGL_MSG_DOWNLOAD_PROGRESS,
+    LVGL_MSG_SET_TIME,
 } lvgl_msg_type_t;
 
 /* 下载进度负载 */
@@ -64,4 +65,5 @@ void ui_push_download(int percent, float speed_kb, int eta_min, int eta_sec, uin
 void ui_show_home(void);
 void ui_show_wifi(void);
 void ui_show_download(void);
+void ui_get_time(void);
 #endif

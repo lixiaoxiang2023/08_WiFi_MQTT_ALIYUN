@@ -360,22 +360,31 @@ void ota_daemon_task(void *pvParameter) {
 void key_scan_task(void *arg)
 {
     uint8_t key;
+    unsigned long ulCx = 0;
 
     wifi_config_t conf;
     esp_wifi_get_config(WIFI_IF_STA, &conf);
     key_init();
    // lcd_show_homepage((char *)conf.sta.ssid, "Waiting for IP...", false);
-    // while (g_sys_status != SYS_READY) 
-    // {
-    //     //ESP_LOGW("UI", "System busy, key ignored.");
-    //     vTaskDelay(pdMS_TO_TICKS(100));
-    // }
+    while (g_sys_status != SYS_READY) 
+    {
+        //ESP_LOGW("UI", "System busy, key ignored.");
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
     //wifi_switch_mode();
 
     while(1)
     {
         key = key_scan(0);
 
+        ulCx++;
+
+        if(ulCx > 3000)
+        {
+            ulCx = 0;
+            ui_get_time();
+            //printf("KEY SCAN TASK Running... \n");
+        }
         switch (key)
         {
             case KEY0_PRES:

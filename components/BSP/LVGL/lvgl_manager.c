@@ -6,6 +6,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 
+
 extern QueueHandle_t lvgl_queue;
 
 /* Android 风格配色 */
@@ -370,6 +371,11 @@ void ui_push_download(int p, float s, int em, int es, uint32_t db, uint32_t tb) 
     memcpy(m.text, &payload, sizeof(payload));
     xQueueSend(lvgl_queue, &m, pdMS_TO_TICKS(20));
 }
+
+void ui_get_time(void) {
+    lvgl_msg_t m = { .type = LVGL_MSG_SET_TIME };
+    xQueueSend(lvgl_queue, &m, pdMS_TO_TICKS(20));
+}
 void ui_create(void) {
     lv_obj_t *scr = lv_scr_act();
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
@@ -440,6 +446,9 @@ void lvgl_task(void *arg) {
                     g_ui_state.download_eta_sec = p.eta_sec;
                     g_ui_state.download_done_bytes = p.downloaded_bytes;
                     g_ui_state.download_total_bytes = p.total_bytes;
+                    break;
+                case LVGL_MSG_SET_TIME:
+                    // 时间更新不需要修改状态结构体，直接刷新即可
                     break;
                 }
             }
