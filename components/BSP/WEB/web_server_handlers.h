@@ -62,6 +62,8 @@
 #define NVS_KEY_UPLOAD_SERVER     "upload_srv"   ///< 上传服务器地址
 #define NVS_KEY_WIFI_SSID         "wifi_ssid"    ///< WiFi SSID
 #define NVS_KEY_WIFI_PASSWORD     "wifi_pwd"     ///< WiFi密码
+#define NVS_SPACE_SYSTEM "storage"
+#define NVS_KEY_USB_BOOT "usb_boot_en" // 长度不能超过15个字符
 /** @} */
 /*==============================================================================
  * 类型定义
@@ -315,6 +317,9 @@ esp_err_t update_handler(httpd_req_t *req);
  */
 extern esp_err_t wifi_apply_config(const char *ssid, const char *password);
 
+extern esp_err_t usb_control_handler(httpd_req_t *req);
+extern esp_err_t get_usb_boot_config_handler(httpd_req_t *req);
+bool read_usb_boot_config_from_nvs(void);
 /** @} */
 
 #endif /* WEB_SERVER_HANDLERS_H */

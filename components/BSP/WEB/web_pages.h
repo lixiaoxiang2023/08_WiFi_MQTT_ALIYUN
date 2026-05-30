@@ -51,6 +51,8 @@ static const char *wifi_config_html =
 "<h3>设备信息</h3>"
 "<p>软件版本号：" FW_VERSION "</p>"
 "<p>硬件版本号：" HW_VERSION "</p>"
+/* 修改点 1：完全复用 <p> 标签，确保字号字体完全一致，内部嵌入原生 Checkbox 开关 */
+"<p><label style='display:inline;font-weight:normal;font-size:inherit;margin:0;'><input type='checkbox' id='usbBootToggle' onchange='toggleUsbBoot(this)' style='width:auto;margin:0 6px 0 0;vertical-align:middle;'>启用U盘功能</label></p>"
 "<button class='btn btn-outline' onclick='triggerQuickUpdate()'>软件更新</button>"
 "</div>"
 "</div>"
@@ -185,6 +187,15 @@ static const char *wifi_config_html =
 
 "window.onload = async function(){"
 "await fetchProductList();"
+/* 修改点 2：初始化时获取并同步U盘启动开关的最新状态 */
+"try{"
+"const usbResp = await fetch('/get_usb_boot_config?t=' + Date.now());"
+"if(usbResp.ok){"
+"const usbData = await usbResp.json();"
+"document.getElementById('usbBootToggle').checked = !!usbData.usb_boot_enabled;"
+"}"
+"}catch(e){}"
+
 "try{"
 "const wifiResp = await fetch('/get_wifi_info?t=' + Date.now());"
 "if(wifiResp.ok){"
@@ -251,10 +262,22 @@ static const char *wifi_config_html =
 "fetch('/connect_wifi',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ssid:s,password:p})})"
 ".then(r=>r.text()).then(d=>alert(d));"
 "}"
+
+/* 修改点 3：增加下发状态变化的 POST 请求函数 */
+"function toggleUsbBoot(cb){"
+"fetch('/api/usb_control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({usb_boot_enabled:cb.checked})})"
+".then(r=>r.text()).then(d=>{"
+"console.log('U盘启动配置更新成功:', d);"
+"}).catch(()=>{"
+"alert('同步失败，请检查网络');"
+"cb.checked = !cb.checked;"
+"});"
+"}"
+
 "async function triggerQuickUpdate() {"
 "const mod = document.getElementById('model');"
 "const pl = document.getElementById('productLine');"
-"const pId = mod.value;" // 获取选中的平台 ID (数字)
+"const pId = mod.value;"
 "if(!pId || pId.includes('加载') || pId.includes('无')){ alert('请先选择有效的平台'); return; }"
 "if(!confirm('是否获取最新固件对本机进行一键升级？')) return;"
 "try {"
@@ -262,10 +285,10 @@ static const char *wifi_config_html =
 "method: 'POST',"
 "headers: {'Content-Type': 'application/json'},"
 "body: JSON.stringify({"
-"platform_id: parseInt(pId)," // 传入真实的平台 ID
-"product_code: pl.value,"      // 传入当前产品线 code
-"platform_code: mod.options[mod.selectedIndex].text," // 传入平台名称
-"firmware_version: 'latest'"   // 触发后端一键升级逻辑的标识
+"platform_id: parseInt(pId),"
+"product_code: pl.value,"
+"platform_code: mod.options[mod.selectedIndex].text,"
+"firmware_version: 'latest'"
 "})"
 "});"
 "const d = await res.text();"

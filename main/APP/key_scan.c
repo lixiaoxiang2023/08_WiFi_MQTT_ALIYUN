@@ -436,15 +436,15 @@ void key_scan_task(void *arg)
             case KEY2_PRES:
             {
                 printf("KEY2 has been pressed \n");
-                xTaskCreatePinnedToCore(
-                    usb_copy_task,
-                    "usb_copy",
-                    4096*2,
-                    NULL,
-                    10,
-                    NULL,
-                    1
-                );
+                // xTaskCreatePinnedToCore(
+                //     usb_copy_task,
+                //     "usb_copy",
+                //     4096*2,
+                //     NULL,
+                //     10,
+                //     NULL,
+                //     1
+                // );
                 break;
             }
             case KEY3_PRES:

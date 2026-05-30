@@ -30,6 +30,7 @@ static httpd_uri_t uri_wifi = {
     .handler = wifi_post_handler
 };
 
+
 void web_server_start(void)
 {
     if (server) return;
@@ -183,6 +184,19 @@ void web_server_start(void)
             .user_ctx  = NULL
         };
 
+        static const httpd_uri_t usb_control_uri = {
+            .uri      = "/api/usb_control",
+            .method   = HTTP_POST,
+            .handler  = usb_control_handler,
+            .user_ctx = NULL
+        };
+
+        static const httpd_uri_t get_usb_config_uri = {
+            .uri       = "/get_usb_boot_config",
+            .method    = HTTP_GET,                    // 👈 网页用的 fetch 默认是 GET
+            .handler   = get_usb_boot_config_handler, // 👈 对应上面的函数
+            .user_ctx  = NULL
+        };
     // Register all URI handlers with the web server
     httpd_register_uri_handler(server, &wifi_scan_uri);
     httpd_register_uri_handler(server, &save_config_uri);
@@ -196,6 +210,8 @@ void web_server_start(void)
     httpd_register_uri_handler(server, &uri_get_platforms);
     httpd_register_uri_handler(server, &uri_get_versions);
     httpd_register_uri_handler(server, &update_uri);
+    httpd_register_uri_handler(server, &usb_control_uri);
+    httpd_register_uri_handler(server, &get_usb_config_uri);
 }
 
 void web_server_stop(void)

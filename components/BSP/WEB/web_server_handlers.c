@@ -1075,3 +1075,157 @@ esp_err_t update_handler(httpd_req_t *req) {
     cJSON_Delete(root);
     return ESP_OK;
 }
+/**
+ * @brief HTTP POST处理器：U盘开关控制
+ *
+ * 处理前端POST /api/usb_control 请求，解析JSON数据中的enable字段，
+ * 异步或同步控制U盘的挂载/卸载或供电切换。
+ * * 请求示例: {"enable": true} 或 {"enable": false}
+ *
+ * @param req HTTP请求结构体指针
+ * @return esp_err_t 处理结果
+ */
+/**
+ * @brief HTTP POST处理器：U盘开关控制并保存至NVS
+ */
+esp_err_t usb_control_handler(httpd_req_t *req) {
+    char buf[128] = {0};
+    int total_len = req->content_len;
+    int cur_len = 0;
+
+    // 为 \0 预留 1 字节空间，限制最大接收 127 字节
+    if (total_len <= 0 || total_len >= sizeof(buf)) {
+        ESP_LOGE(TAG_WEB_SERVER, "USB control request length invalid: %d", total_len);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "无效的请求长度");
+        return ESP_FAIL;
+    }
+
+    // 1. 接收 POST 完整数据
+    while (cur_len < total_len) {
+        int received = httpd_req_recv(req, buf + cur_len, total_len - cur_len);
+        if (received <= 0) {
+            if (received == HTTPD_SOCK_ERR_TIMEOUT) {
+                httpd_resp_send_408(req);
+            }
+            return ESP_FAIL; 
+        }
+        cur_len += received;
+    }
+    buf[total_len] = '\0'; 
+
+    // 2. 解析 JSON
+    cJSON *root = cJSON_Parse(buf);
+    if (!root) {
+        ESP_LOGE(TAG_WEB_SERVER, "USB control JSON parse failed");
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "JSON解析失败");
+        return ESP_FAIL;
+    }
+
+    cJSON *enable_json = cJSON_GetObjectItemCaseSensitive(root, "usb_boot_enabled"); 
+    if (!cJSON_IsBool(enable_json)) {
+        ESP_LOGE(TAG_WEB_SERVER, "Invalid parameter 'usb_boot_enabled', expected boolean");
+        cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "缺少布尔型usb_boot_enabled参数");
+        return ESP_FAIL;
+    }
+
+    bool usb_enable = cJSON_IsTrue(enable_json);
+    cJSON_Delete(root); 
+
+    ESP_LOGI(TAG_WEB_SERVER, "收到前端指令：U盘状态设定为 -> %s", usb_enable ? "开启" : "关闭");
+
+    // ==================== 新增：保存到 NVS ====================
+    nvs_handle_t my_handle;
+    esp_err_t err = nvs_open(NVS_SPACE_SYSTEM, NVS_READWRITE, &my_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG_WEB_SERVER, "Error (%s) opening NVS handle!", esp_err_to_name(err));
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "NVS打开失败");
+        return ESP_FAIL;
+    }
+
+    // 将 bool 转换为 uint8_t 写入 NVS
+    err = nvs_set_u8(my_handle, NVS_KEY_USB_BOOT, (uint8_t)usb_enable);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG_WEB_SERVER, "NVS set failed: %s", esp_err_to_name(err));
+        nvs_close(my_handle);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "NVS写入失败");
+        return ESP_FAIL;
+    }
+
+    // 提交闪存更新（必须调用 commit 才会切实写入 Flash）
+    err = nvs_commit(my_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG_WEB_SERVER, "NVS commit failed: %s", esp_err_to_name(err));
+    }
+    
+    // 关闭 NVS 句柄
+    nvs_close(my_handle);
+    ESP_LOGI(TAG_WEB_SERVER, "U盘启动配置成功保存至 NVS");
+    // =========================================================
+
+    // 3. 执行底层的核心实时控制逻辑
+    // if (usb_enable) {
+    //     board_usb_msc_control(true);
+    // } else {
+    //     board_usb_msc_control(false);
+    // }
+
+    // 4. 回馈前端
+    const char *resp_str = "{\"status\":\"success\"}";
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, resp_str);
+
+    return ESP_OK;
+}
+bool read_usb_boot_config_from_nvs(void) {
+    nvs_handle_t my_handle;
+    uint8_t usb_enable_bit = 0; // 默认关闭
+    
+    esp_err_t err = nvs_open(NVS_SPACE_SYSTEM, NVS_READONLY, &my_handle);
+    if (err == ESP_OK) {
+        // 如果找不到对应的 key，err 会返回 ESP_ERR_NVS_NOT_FOUND，此时不更改默认值 0
+        err = nvs_get_u8(my_handle, NVS_KEY_USB_BOOT, &usb_enable_bit);
+        if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGE("NVS", "Error (%s) reading NVS!", esp_err_to_name(err));
+        }
+        nvs_close(my_handle);
+    } else {
+        ESP_LOGE("NVS", "Error (%s) opening NVS for reading!", esp_err_to_name(err));
+    }
+    
+    return (usb_enable_bit == 1);
+}
+
+/**
+ * @brief HTTP GET 处理器：获取当前 U 盘启动配置状态响应给前端
+ * 路径：GET /get_usb_boot_config
+ */
+esp_err_t get_usb_boot_config_handler(httpd_req_t *req) {
+    nvs_handle_t my_handle;
+    uint8_t usb_enable_bit = 0; // 默认关闭
+
+    // 1. 从 NVS 中读取当前状态
+    esp_err_t err = nvs_open(NVS_SPACE_SYSTEM, NVS_READONLY, &my_handle);
+    if (err == ESP_OK) {
+        err = nvs_get_u8(my_handle, NVS_KEY_USB_BOOT, &usb_enable_bit);
+        if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGE("WEB_SERVER", "NVS read error: %s", esp_err_to_name(err));
+        }
+        nvs_close(my_handle);
+    }
+
+    // 2. 组装符合前端预期的 JSON 字符串 {"usb_boot_enabled": true/false}
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "usb_boot_enabled", (usb_enable_bit == 1));
+    
+    const char *sys_info = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+
+    // 3. 发送给前端
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, sys_info);
+
+    // cJSON_PrintUnformatted 生成的指针必须手动 free
+    free((void*)sys_info); 
+    return ESP_OK;
+}

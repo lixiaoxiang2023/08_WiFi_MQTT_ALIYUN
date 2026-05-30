@@ -120,10 +120,7 @@ void app_main(void)
         ESP_ERROR_CHECK(nvs_flash_init());
     }
 
-    // 在 Web 服务器和任何 NVS 读写操作之前初始化 NVS 句柄
-    ESP_ERROR_CHECK(init_web_config_nvs()); // 【重要】添加这一行
-
-    /* ================= OTA ================= */    
+ 
     ota_read_success_flag();
     ota_check_and_confirm();
 
@@ -146,6 +143,25 @@ void app_main(void)
     ESP_LOGI("MAIN", "soft version: %s",FW_VERSION);
     vTaskDelay(pdMS_TO_TICKS(3000));
     firmware_storage_check(NULL);
+        // 在 Web 服务器和任何 NVS 读写操作之前初始化 NVS 句柄
+    ESP_ERROR_CHECK(init_web_config_nvs()); // 【重要】添加这一行
+    bool usb_boot_enabled = read_usb_boot_config_from_nvs(); 
+    ESP_LOGI("MAIN", "从NVS加载U盘启动配置: %s", usb_boot_enabled ? "开启" : "关闭");
+
+    // 根据读取到的布尔值，执行你的实时硬件或驱动控制
+    if (usb_boot_enabled) {
+        xTaskCreatePinnedToCore(
+            usb_copy_task,
+            "usb_copy",
+            4096*2,
+            NULL,
+            10,
+            NULL,
+            1
+        );
+    } else {
+        // board_usb_msc_control(false);
+    }   
     /* ================= 本地任务 ================= */
     //xTaskCreate(mem_monitor_task, "mem_mon", 4096, NULL, 5, NULL);
     // xTaskCreatePinnedToCore(
