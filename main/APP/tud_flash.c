@@ -24,6 +24,16 @@ static int s_disk_block_size = 0;               /* 磁盘块的大小 */
 static bool ejected[LOGICAL_DISK_NUM] = {true}; /* 弹出状态 */
 __usbdev g_usbdev;                              /* USB控制器 */
 
+typedef enum {
+    STORAGE_SOURCE_NONE = 0,
+    STORAGE_SOURCE_TF_CARD,
+    STORAGE_SOURCE_INTERNAL_FLASH
+} storage_source_t;
+
+static storage_source_t s_storage_source = STORAGE_SOURCE_NONE;
+
+static esp_err_t tud_sdcard_init(const char *base_path);
+static esp_err_t tud_fat_partitions_init(const char *base_path);
 
 // 封装一个简单的加锁宏，带 100ms 超时，防止死锁
 
@@ -376,41 +386,63 @@ int32_t tud_msc_scsi_cb(uint8_t lun, uint8_t const scsi_cmd[16], void *buffer, u
 //--------------------------------------------------------------------+
 // 以上是USB回调函数，一般用来判断连接过程
 //--------------------------------------------------------------------+
-
 /**
- * @brief       初始化SPIFFS的函数
+ * @brief       初始化内部 flash 分区为 FAT 文件系统
  * @param       base_path:定义分区的名称
  * @retval      无
  */
 static esp_err_t tud_fat_partitions_init(const char *base_path)
 {
-    ESP_LOGI(TAG, "Mounting FAT filesystem");
+    ESP_LOGI(TAG, "Mounting internal flash as FAT filesystem");
     esp_err_t ret = ESP_FAIL;
-    /* 如果是新分区并且以前没有格式化，则允许格式化分区 */
     wl_handle_t wl_handle_1 = WL_INVALID_HANDLE;
-    ESP_LOGI(TAG, "using internal flash");
-    
+
     const esp_vfs_fat_mount_config_t mount_config = {
         .format_if_mount_failed = true,
         .max_files = 9,
         .allocation_unit_size = CONFIG_WL_SECTOR_SIZE
     };
 
-    /* 判断IDF版本释放大于5.0版本，本教程使用的是5.0版本，所以执行第一句代码 */
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
-    /* 挂在分区 */
     ret = esp_vfs_fat_spiflash_mount_rw_wl(base_path, "vfs", &mount_config, &wl_handle_1);
 #else
     ret = esp_vfs_fat_spiflash_mount(base_path, "vfs", &mount_config, &wl_handle_1);
 #endif
-    /* 挂在分区失败 */
+
     if (ret != ESP_OK)
     {
-        ESP_LOGE(TAG, "Failed to mount FATFS (%s)", esp_err_to_name(ret));
-        return ESP_FAIL;
+        ESP_LOGE(TAG, "Failed to mount internal flash FATFS (%s)", esp_err_to_name(ret));
+        return ret;
     }
 
     return ESP_OK;
+}
+
+/**
+ * @brief       选择 USB MSC 的存储后端，优先使用 TF 卡；无卡时回退到内部 flash
+ * @param       base_path:挂载点路径
+ * @retval      esp_err_t
+ */
+static esp_err_t tud_select_storage_backend(const char *base_path)
+{
+    esp_err_t ret = tud_sdcard_init(base_path);
+    if (ret == ESP_OK) {
+        s_storage_source = STORAGE_SOURCE_TF_CARD;
+        ESP_LOGI(TAG, "USB MSC storage backend: TF card");
+        return ESP_OK;
+    }
+
+    ESP_LOGW(TAG, "TF card unavailable (%s), use internal flash as USB MSC storage", esp_err_to_name(ret));
+
+    ret = tud_fat_partitions_init(base_path);
+    if (ret == ESP_OK) {
+        s_storage_source = STORAGE_SOURCE_INTERNAL_FLASH;
+        ESP_LOGI(TAG, "USB MSC storage backend: internal flash");
+        return ESP_OK;
+    }
+
+    s_storage_source = STORAGE_SOURCE_NONE;
+    return ret;
 }
 
 /**
@@ -420,6 +452,7 @@ static esp_err_t tud_fat_partitions_init(const char *base_path)
  */
 static esp_err_t tud_sdcard_init(const char *base_path)
 {
+    (void)base_path;
     ESP_LOGI(TAG, "Initializing SD card using SPI mode");
 
     // 检查SPI总线是否已经初始化
@@ -460,14 +493,12 @@ static esp_err_t tud_sdcard_init(const char *base_path)
  */
 void tud_usb_flash(void)
 {
-    /* 初始化TF卡 */
-
-    if(tud_sdcard_init(disk_path) != ESP_OK)
+    esp_err_t ret = tud_select_storage_backend(disk_path);
+    if (ret != ESP_OK)
     {
-        ESP_LOGE(TAG, "Failed to initialize SD card for USB MSC");
+        ESP_LOGE(TAG, "Failed to initialize USB MSC storage backend (%s)", esp_err_to_name(ret));
         return;
     }
-
 
     vTaskDelay(100);
 
