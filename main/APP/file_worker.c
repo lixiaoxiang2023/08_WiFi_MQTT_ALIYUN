@@ -5,10 +5,28 @@
 #include "lwip_mqtt.h"
 #include "json_processor.h"
 #include "file_worker.h"
+#include "web_server_handlers.h"
+#include "spi_sdcard.h"
 
 static const char *TAG = "FILE_WORK";
 
 QueueHandle_t usb_copy_queue;
+
+static bool get_download_storage_is_usb(void)
+{
+    if (read_usb_boot_config_from_nvs()) {
+        ESP_LOGI(TAG, "USB功能已开启，下载目标使用 /0:");
+        return true;
+    }
+
+    if (sd_spi_init() == ESP_OK) {
+        ESP_LOGI(TAG, "USB功能关闭，但检测到 TF 卡，下载目标使用 /0:");
+        return true;
+    }
+
+    ESP_LOGW(TAG, "USB功能关闭且 TF 卡不可用，回退到 SPIFFS");
+    return false;
+}
 
 bool wait_spiffs_file_ready(const char *path, int timeout_ms)
 {
@@ -58,9 +76,10 @@ void file_task_worker(void *arg)
             else if (info.event_type &&
                     strstr(info.event_type, EVENT_DOWNLOAD)) {
                 
-                char buf[64]={0};
-                memset(buf,0,sizeof(buf));
-                snprintf(buf, sizeof(buf), "%s/%s", SPIFFS_PATH, info.object_name);
+                bool use_usb = get_download_storage_is_usb();
+                const char *storage_root = use_usb ? USB_PATH : SPIFFS_PATH;
+                char buf[128] = {0};
+                snprintf(buf, sizeof(buf), "%s/%s", storage_root, info.object_name);
 
                 strcpy(g_strWriteLocalFileName, buf);
 
@@ -71,14 +90,16 @@ void file_task_worker(void *arg)
                     continue;
                 }
 
-                file_copy_msg_t msg = {0};
-                strcpy(msg.src, g_strWriteLocalFileName);
+                if (use_usb) {
+                    file_copy_msg_t msg = {0};
+                    strcpy(msg.src, g_strWriteLocalFileName);
 
-                memset(buf,0,sizeof(buf));
-                snprintf(buf, sizeof(buf), "%s/%s", USB_PATH, info.object_name);
-                strcpy(msg.dst, buf);
+                    memset(buf,0,sizeof(buf));
+                    snprintf(buf, sizeof(buf), "%s/%s", USB_PATH, info.object_name);
+                    strcpy(msg.dst, buf);
 
-                xQueueSend(usb_copy_queue, &msg, portMAX_DELAY);
+                    xQueueSend(usb_copy_queue, &msg, portMAX_DELAY);
+                }
             }
             free(json);
         }

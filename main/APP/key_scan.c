@@ -13,6 +13,7 @@
 #include "key_scan.h"
 #include "key.h"
 #include "tud_flash.h"
+#include "spi_sdcard.h"
 
 // 队列句柄
 esp_mqtt_client_handle_t client = NULL;
@@ -68,6 +69,23 @@ void wifi_switch_mode(void)
 static TaskHandle_t xOtaTaskHandle = NULL;
 
 // New task function to handle OTA update process
+static const char *get_download_storage_root(void)
+{
+    bool usb_enabled = read_usb_boot_config_from_nvs();
+    if (usb_enabled) {
+        ESP_LOGI("MAIN", "USB功能已开启，使用 /0: 存储");
+        return USB_PATH;
+    }
+
+    if (sd_spi_init() == ESP_OK) {
+        ESP_LOGI("MAIN", "USB功能关闭，但检测到TF卡，使用 /0: 存储");
+        return USB_PATH;
+    }
+
+    ESP_LOGW("MAIN", "USB功能关闭且TF卡不可用，回退到 SPIFFS 存储");
+    return SPIFFS_PATH;
+}
+
 static void ota_update_task(void *arg)
 {
     printf("Starting OTA update task...\n");
@@ -96,11 +114,13 @@ static void ota_update_task(void *arg)
                 file_name = (basename && basename[1]) ? basename + 1 : "ota_update.bin";
             }
 
-            snprintf(buf, sizeof(buf), "%s/%s", USB_PATH, file_name);
+            const char *storage_root = get_download_storage_root();
+            snprintf(buf, sizeof(buf), "%s/%s", storage_root, file_name);
             strcpy(g_strWriteLocalFileName, buf);
 
             ui_set_ota("LOADING...");
             ESP_LOGI("MAIN", "LOADING");
+            ESP_LOGI("MAIN", "下载目标存储: %s", storage_root);
 
            // ui_show_download();
 
@@ -126,11 +146,13 @@ static void ota_update_task(void *arg)
                     download_ok = false;
                 }
             } else {
+                const char *storage_root = get_download_storage_root();
                 for (int i = 0; i < g_download_info.file_count; i++) {
                     char file_path[256] = {0};
-                    snprintf(file_path, sizeof(file_path), "%s/%s", USB_PATH, g_download_info.files[i].file_name);
+                    snprintf(file_path, sizeof(file_path), "%s/%s", storage_root, g_download_info.files[i].file_name);
 
                     ESP_LOGI("MAIN", "Downloading OTA file %d/%d: %s", i + 1, g_download_info.file_count, g_download_info.files[i].file_name);
+                    ESP_LOGI("MAIN", "下载目标存储: %s", storage_root);
                     ui_set_ota(""); // 清除旧状态
                     vTaskDelay(pdMS_TO_TICKS(100));
                     
