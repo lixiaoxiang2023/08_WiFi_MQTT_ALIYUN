@@ -1912,11 +1912,6 @@ CONFIG_TINYUSB_VENDOR_COUNT=0
 # end of TinyUSB Stack
 
 #
-# ESP LVGL PORT
-#
-# end of ESP LVGL PORT
-
-#
 # LVGL configuration
 #
 CONFIG_LV_CONF_SKIP=y
@@ -2220,6 +2215,11 @@ CONFIG_LV_BUILD_EXAMPLES=y
 # CONFIG_LV_USE_DEMO_MUSIC is not set
 # end of Demos
 # end of LVGL configuration
+
+#
+# ESP LVGL PORT
+#
+# end of ESP LVGL PORT
 # end of Component config
 
 # CONFIG_IDF_EXPERIMENTAL_FEATURES is not set

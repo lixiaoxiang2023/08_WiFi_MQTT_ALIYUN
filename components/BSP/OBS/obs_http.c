@@ -189,132 +189,136 @@ static void obs_state_reset(void)
 
 /* ===================== 下载 ===================== */
 
-esp_err_t download_to_usb(const char *url, const char *filename) {
+#include <inttypes.h>
+#include "esp_wifi.h"
+
+// 内部单次下载函数 (支持断点续传)
+static esp_err_t download_to_usb_once(const char *url, const char *filename) {
     if (url == NULL || filename == NULL) return ESP_ERR_INVALID_ARG;
 
     // --- 1. 获取本地已下载的大小 ---
-    long local_file_size = 0;
+    int64_t local_file_size = 0;
     struct stat st;
     if (stat(filename, &st) == 0) {
         local_file_size = st.st_size;
-        ESP_LOGI("DW", "Detect local file: %ld bytes", local_file_size);
+        ESP_LOGI("DW", "Detect local file: %" PRId64 " bytes", local_file_size);
     }
 
     // --- 2. UI 初始化 ---
     const char *short_name = strrchr(filename, '/');
     short_name = (short_name == NULL) ? filename : (short_name + 1);
 
-    ESP_LOGI("DW", "filename:%s", short_name);
     ui_set_ota("");
     ui_set_download_info(short_name, (uint32_t)((local_file_size > 0) ? local_file_size : 0));
     ui_show_download();
-    ui_push_download(0, 0.0f, 0, 0,0,0); // 初始化UI显示
-    // --- 3. 打开文件 ---
 
-    FILE *f = fopen(filename, "ab");
+    // --- 3. 打开文件 ---
+    FILE *f = fopen(filename, "ab"); // append mode 追加写入
     if (f == NULL) {
         ESP_LOGE("DW", "无法打开文件: %s, 原因: %s", filename, strerror(errno));
-
         return ESP_FAIL;
     }
 
-    // 时间记录
     struct timespec start_time, last_speed_time;
     clock_gettime(CLOCK_MONOTONIC, &start_time);
     last_speed_time = start_time;
 
+    // --- 4. 配置 HTTP 客户端 ---
     esp_http_client_config_t config = {
         .url = url,
         .method = HTTP_METHOD_GET,
-        .timeout_ms = 4000,  // ⭐ 减少至 15 秒（从 40 秒）- 网络不稳定时快速失败
-        .buffer_size = 16384,     
-        .buffer_size_tx = 4096,
+        .timeout_ms = 15000,
+        .buffer_size = 4096,     // 保持 4KB 防 MbedTLS 爆堆
+        .buffer_size_tx = 1024,
+        .user_agent = "ESP32-HTTP-Client/1.0", // 放置 User-Agent 防止防刷机制断开
         .skip_cert_common_name_check = true,
     };
+    
     esp_http_client_handle_t client = esp_http_client_init(&config);
-    if (client == NULL) { fclose(f); return ESP_FAIL; }
+    if (client == NULL) { 
+        fclose(f); 
+        return ESP_FAIL; 
+    }
 
+    esp_http_client_set_header(client, "Connection", "keep-alive");
+
+    // 自动添加 Range 头实现续传
     if (local_file_size > 0) {
         char range_header[64];
-        snprintf(range_header, sizeof(range_header), "bytes=%ld-", local_file_size);
+        snprintf(range_header, sizeof(range_header), "bytes=%" PRId64 "-", local_file_size);
         esp_http_client_set_header(client, "Range", range_header);
     }
 
-    // ⭐ 网络连接可能堵塞，提前通知 UI 并让步
-    ui_push_download(0, 0.0f, 0, 0, local_file_size, local_file_size);
-    vTaskDelay(pdMS_TO_TICKS(10));
-    
     if (esp_http_client_open(client, 0) != ESP_OK) {
-        esp_http_client_cleanup(client); fclose(f); return ESP_FAIL;
+        ESP_LOGE("DW", "HTTP Open 失败");
+        esp_http_client_cleanup(client); 
+        fclose(f); 
+        return ESP_FAIL;
     }
-    
-    // ⭐ 连接成功后让步，给 LVGL 机会更新
-    vTaskDelay(pdMS_TO_TICKS(5));
 
-    // ⭐ 获取响应头可能堵塞，定期让步
     int64_t remaining_length = esp_http_client_fetch_headers(client);
-    vTaskDelay(pdMS_TO_TICKS(5));
     int status_code = esp_http_client_get_status_code(client);    
     esp_err_t err = ESP_OK;
 
-    #define DL_BUFFER_SIZE (32 * 1024)
-    #define PROGRESS_UPDATE_INTERVAL (64 * 1024) 
-
-    // --- 5. 核心逻辑处理 ---
+    // --- 5. HTTP 响应码判断 ---
     int64_t total_content_length = 0;
     bool skip_download = false;
 
-    if (status_code == 206) {
+    if (status_code == 206) { // 支持断点续传
         total_content_length = remaining_length + local_file_size;
-        if (total_content_length < local_file_size) {
-            total_content_length = local_file_size;
-        }
-    } else if (status_code == 416) {
-        ESP_LOGI("DW", "HTTP 416: File already complete.");
+        if (total_content_length < local_file_size) total_content_length = local_file_size;
+    } else if (status_code == 416) { // 文件已完全下载
+        ESP_LOGI("DW", "HTTP 416: 文件已完全下载");
         total_content_length = local_file_size;
         skip_download = true;
-        // 立即发送100%进度，因为文件已完全下载
         ui_push_download(100, 0.0f, 0, 0, total_content_length, total_content_length);
-    } else if (status_code == 200) {
+    } else if (status_code == 200) { // 服务器不支持断点续传，重头下载
         if (local_file_size > 0) {
-            ESP_LOGW("DW", "Server returned 200, restarting...");
+            ESP_LOGW("DW", "服务器不支持 Range(返回 200)，重新开始下载...");
             fclose(f);
-            f = fopen(filename, "wb");
+            f = fopen(filename, "wb"); 
+            if (f == NULL) {
+                esp_http_client_cleanup(client);
+                return ESP_FAIL;
+            }
             local_file_size = 0;
         }
         total_content_length = remaining_length;
-        if (total_content_length < 0) {
-            total_content_length = 0;
-        }
+        if (total_content_length < 0) total_content_length = 0;
     } else {
-        ESP_LOGE("DW", "HTTP Error: %d", status_code);
+        ESP_LOGE("DW", "HTTP 错误状态码: %d", status_code);
         skip_download = true; 
+        err = ESP_FAIL;
     }
 
     ui_set_download_info(short_name, (uint32_t)((total_content_length > 0) ? total_content_length : local_file_size));
 
-    // --- 6. 数据接收 ---
-    int total_read_len = local_file_size;
-    if (!skip_download) {
-        uint32_t last_speed_bytes = local_file_size;
-        
+    // --- 6. 核心数据读取循环 ---
+    #define DL_BUFFER_SIZE (8 * 1024)
+    #define PROGRESS_UPDATE_INTERVAL (32 * 1024) // 缩短更新间隔至 32KB，降低单次延迟
+
+    int64_t total_read_len = local_file_size;
+
+    if (!skip_download && err == ESP_OK) {
+        int64_t last_speed_bytes = local_file_size;
         char *buffer = malloc(DL_BUFFER_SIZE);
-        if (buffer) {
+        
+        if (buffer != NULL) {
             while (true) {
-                // ⭐ 网络读取每次可能因延迟而堵塞，但读取后必须让步
                 int read_len = esp_http_client_read(client, buffer, DL_BUFFER_SIZE);
                 
-                // ⭐ 重要：即使没有数据，也要定期让步给 LVGL（除非连接完成）
-                if (read_len <= 0 && !esp_http_client_is_complete_data_received(client)) {
-                    vTaskDelay(pdMS_TO_TICKS(5));  // 网络延迟，让出 CPU
-                }
-                
                 if (read_len > 0) {
-                    fwrite(buffer, 1, read_len, f);
+                    size_t written = fwrite(buffer, 1, read_len, f);
+                    if (written < read_len) {
+                        ESP_LOGE("DW", "写入磁盘/USB失败，可能存储空间不足");
+                        err = ESP_FAIL;
+                        break;
+                    }
                     total_read_len += read_len;
 
-                    if (total_read_len >= last_speed_bytes + (PROGRESS_UPDATE_INTERVAL) ||
+                    if (total_read_len >= last_speed_bytes + PROGRESS_UPDATE_INTERVAL ||
                         (total_content_length > 0 && total_read_len >= total_content_length)) {
+                        
                         struct timespec now_time;
                         clock_gettime(CLOCK_MONOTONIC, &now_time);
                         double diff_s = (double)(now_time.tv_sec - last_speed_time.tv_sec) + 
@@ -331,48 +335,84 @@ esp_err_t download_to_usb(const char *url, const char *filename) {
                             eta_sec = remaining_s % 60;
                         }
 
-                        ESP_LOGI("DW", "[%d%%] Received: %d KB | Speed: %.2f KB/s | ETA: %02d:%02d", 
-                                 percentage, total_read_len/1024, instant_speed, eta_min, eta_sec);
+                        ESP_LOGI("DW", "[%d%%] Received: %" PRId64 " KB | Speed: %.2f KB/s | ETA: %02d:%02d", 
+                                 percentage, total_read_len / 1024, instant_speed, eta_min, eta_sec);
 
                         ui_push_download(percentage, instant_speed, eta_min, eta_sec, total_read_len, total_content_length);
                         last_speed_bytes = total_read_len;
                         last_speed_time = now_time;
-                        vTaskDelay(pdMS_TO_TICKS(5));  // ⭐ 每次进度更新后让步
-                    } else {
-                        // ⭐ 即使进度未更新，也偶尔让步
-                        vTaskDelay(pdMS_TO_TICKS(2));
+                        
+                        // 定期让步给 FreeRTOS 系统调度（避免锁死其他任务）
+                        vTaskDelay(pdMS_TO_TICKS(1));
                     }
-                } else {
-                    err = (read_len == 0 && esp_http_client_is_complete_data_received(client)) ? ESP_OK : ESP_FAIL;
+                } else if (read_len == 0) {
+                    // 读取完毕，校验数据完整性
+                    if (esp_http_client_is_complete_data_received(client) || 
+                       (total_content_length > 0 && total_read_len >= total_content_length)) {
+                        err = ESP_OK;
+                    } else {
+                        ESP_LOGE("DW", "传输提前中断 (未完全接收数据)");
+                        err = ESP_FAIL;
+                    }
+                    break;
+                } else { // read_len < 0 (如 error 104)
+                    ESP_LOGE("DW", "esp_http_client_read 网络读取失败 error: %d", read_len);
+                    err = ESP_FAIL;
                     break;
                 }
             }
             free(buffer);
+        } else {
+            ESP_LOGE("DW", "无法分配下载缓冲区");
+            err = ESP_ERR_NO_MEM;
         }
     }
 
-    // --- 7. 清理 ---
-    bool is_done = (status_code == 416) || (err == ESP_OK && esp_http_client_is_complete_data_received(client));
+    // --- 7. 收尾清理 ---
+    bool is_done = (status_code == 416) || (err == ESP_OK);
     
+    // 只在退出时执行一次磁盘落盘刷新
     fflush(f);
     fsync(fileno(f)); 
     fclose(f);
     esp_http_client_cleanup(client);
 
-   // lv_timer_enable(true);
     lv_tick_inc(0);
 
-    // 发送最终进度更新
     if (is_done) {
         int final_percentage = (total_content_length > 0) ? 100 : 0;
         ui_push_download(final_percentage, 0.0f, 0, 0, total_content_length, total_content_length);
+        return ESP_OK;
     }
 
-    if (is_done) {
-        return ESP_OK;
-    } else {
-        return ESP_FAIL;
+    return ESP_FAIL;
+}
+
+// ⭐ 对外暴露的主入口函数：包含自动重试与 Wi-Fi 节能控制
+esp_err_t download_to_usb(const char *url, const char *filename) {
+    const int MAX_RETRIES = 5;
+    esp_err_t ret = ESP_FAIL;
+
+    // 1. 临时关闭 Wi-Fi 节能模式（防止由于 Modem-Sleep 导致的 TCP 卡死/丢包）
+    esp_wifi_set_ps(WIFI_PS_NONE);
+
+    for (int retry = 0; retry < MAX_RETRIES; retry++) {
+        if (retry > 0) {
+            ESP_LOGW("DW", "⚠️ 网络异常中断，正在尝试第 %d/%d 次断点续传...", retry, MAX_RETRIES - 1);
+            vTaskDelay(pdMS_TO_TICKS(1500)); // 暂停 1.5 秒等待 Socket 完全释放
+        }
+
+        ret = download_to_usb_once(url, filename);
+        if (ret == ESP_OK) {
+            ESP_LOGI("DW", "🎉 文件下载成功完成！");
+            break;
+        }
     }
+
+    // 2. 恢复 Wi-Fi 节能模式
+    esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+
+    return ret;
 }
 /* ===================== 下载 ===================== */
 esp_err_t obs_http_download(const char *url, const char *local_path)
