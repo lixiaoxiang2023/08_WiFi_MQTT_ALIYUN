@@ -127,36 +127,47 @@ static void ui_create_wifi_page(void) {
     g_pages[UI_PAGE_WIFI] = lv_obj_create(lv_scr_act());
     lv_obj_set_size(g_pages[UI_PAGE_WIFI], 320, 180);
     lv_obj_align(g_pages[UI_PAGE_WIFI], LV_ALIGN_BOTTOM_MID, 0, 0);
+    
+    // 清除页面自身的内边距与滚动条
+    lv_obj_set_style_pad_all(g_pages[UI_PAGE_WIFI], 0, 0);
+    lv_obj_set_style_border_width(g_pages[UI_PAGE_WIFI], 0, 0);
+    lv_obj_clear_flag(g_pages[UI_PAGE_WIFI], LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(g_pages[UI_PAGE_WIFI], LV_OBJ_FLAG_HIDDEN);
 
     lv_obj_t *card = ui_create_md_card(g_pages[UI_PAGE_WIFI], 180);
     lv_obj_align(card, LV_ALIGN_TOP_MID, 0, 0);
+    
+    // 【关键修复 4】清除卡片内部的默认 Padding，确保 320 宽度完全可用
+    //lv_obj_set_style_pad_all(card, 6, 0);
 
-    // 左侧：基础信息列表 (宽度减小以容纳右侧)
+    // 左侧：基础信息列表
     g_wifi_ssid_val = ui_create_md_item(card, LV_SYMBOL_WIFI, "SSID", -10);
-    lv_obj_set_width(g_wifi_ssid_val, 160);  // 限制宽度
+    lv_obj_set_width(g_wifi_ssid_val, 160);  // 稍微收窄，给右侧留空间
     
     g_wifi_ip_val   = ui_create_md_item(card, LV_SYMBOL_DIRECTORY, "IP Address", 34);
-    lv_obj_set_width(g_wifi_ip_val, 160);  // 限制宽度
+    lv_obj_set_width(g_wifi_ip_val, 160);
     
     g_wifi_mode_val = ui_create_md_item(card, LV_SYMBOL_SETTINGS, "Mode", 80);
-    lv_obj_set_width(g_wifi_mode_val, 90);  // Mode 内容较短
+    lv_obj_set_width(g_wifi_mode_val, 90);
 
-    // 右侧：Web Server 信息 (紧凑设计)
+    // 右侧：Web Server 信息
     lv_obj_t *web_title = lv_label_create(card);
-    lv_label_set_text(web_title, "Web Server");  // 缩短标题
+    lv_label_set_text(web_title, "Web Server");
     lv_obj_set_style_text_font(web_title, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(web_title, MD_COLOR_TXT_SEC, 0);
-    lv_obj_set_pos(web_title, 160, 60); // 右上角
+    lv_obj_set_pos(web_title, 160, 60); // 微调位置
 
-    // Web IP 显示框 (缩小尺寸)
+    // Web IP 显示框
     lv_obj_t *chip = lv_obj_create(card);
-    lv_obj_set_size(chip, 110, 28);  // 宽度从130减小到110
+    lv_obj_set_size(chip, 110, 28);
     lv_obj_set_pos(chip, 155, 80); // 调整位置，确保不超出
+    
+    // 【关键修复 5】清除 chip 的默认样式影响与滚动条
     lv_obj_set_style_bg_color(chip, MD_COLOR_ACCENT, 0);
     lv_obj_set_style_radius(chip, 12, 0);
     lv_obj_set_style_border_width(chip, 0, 0);
     lv_obj_set_style_pad_all(chip, 6, 0);
+    lv_obj_clear_flag(chip, LV_OBJ_FLAG_SCROLLABLE);
 
     g_wifi_web_val = lv_label_create(chip);
     lv_label_set_long_mode(g_wifi_web_val, LV_LABEL_LONG_DOT);
