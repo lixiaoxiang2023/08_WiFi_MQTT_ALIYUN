@@ -350,6 +350,9 @@ static esp_err_t download_to_usb_once(const char *url, const char *filename) {
                     if (esp_http_client_is_complete_data_received(client) || 
                        (total_content_length > 0 && total_read_len >= total_content_length)) {
                         err = ESP_OK;
+                        // 【新增】读取完成时强制刷一次 UI，确保最后的尾巴数据不丢失
+                        int percentage = (total_content_length > 0) ? (int)((total_read_len * 100LL) / total_content_length) : 100;
+                        ui_push_download(percentage, 0.0f, 0, 0, total_read_len, (total_content_length > 0) ? total_content_length : total_read_len);
                     } else {
                         ESP_LOGE("DW", "传输提前中断 (未完全接收数据)");
                         err = ESP_FAIL;
@@ -377,11 +380,18 @@ static esp_err_t download_to_usb_once(const char *url, const char *filename) {
     fclose(f);
     esp_http_client_cleanup(client);
 
-    lv_tick_inc(0);
+   // lv_tick_inc(0);
 
     if (is_done) {
-        int final_percentage = (total_content_length > 0) ? 100 : 0;
-        ui_push_download(final_percentage, 0.0f, 0, 0, total_content_length, total_content_length);
+        // 如果 total_content_length 未知(<=0)，直接用已读取的总大小充当 total
+        int64_t final_total = (total_content_length > 0) ? total_content_length : total_read_len;
+        
+        // 强制推进到 100% 状态
+        ui_push_download(100, 0.0f, 0, 0, final_total, final_total);
+        
+        // 关键：给 UI 线程让步，确保 LVGL 有时间把 100% 画面渲染到屏幕上
+        vTaskDelay(pdMS_TO_TICKS(50)); 
+        
         return ESP_OK;
     }
 
