@@ -34,12 +34,21 @@ typedef struct {
     char web_ip[32];
     char download_file[64];
     char ota_status[96];
+    float usb_free_gb;     /* U 盘剩余空间 (GB) */
+    float usb_total_gb;    /* U 盘总空间 (GB) */
 } ui_state_t;
+
+/* 新增：U 盘存储信息传递结构 */
+typedef struct {
+    float free_gb;
+    float total_gb;
+} usb_storage_msg_t;
 
 static ui_state_t g_ui_state = { .web_ip = "192.168.4.1" };
 static lv_obj_t *g_pages[UI_PAGE_MAX];
 static lv_obj_t *g_time_label, *g_wifi_badge, *g_usb_badge;
-
+/* 全局句柄中增加 U 盘空间 Label */
+static lv_obj_t *g_usb_space_label;
 /* 页面组件句柄 */
 static lv_obj_t *g_boot_status, *g_boot_card;
 static lv_obj_t *g_wifi_ssid_val, *g_wifi_ip_val, *g_wifi_web_val, *g_wifi_mode_val;
@@ -181,12 +190,28 @@ void ui_safe_set_label_text(lv_obj_t *obj, const char *new_text) {
     lv_label_set_text(obj, new_text);
     lv_obj_invalidate(obj);
 }
+
+/**
+ * @brief 设置 U 盘容量信息
+ * @param free_gb 剩余空间（单位：GB）
+ * @param total_gb 总空间（单位：GB）
+ */
+void ui_set_usb_storage(float free_gb, float total_gb) {
+    lvgl_msg_t m = { .type = LVGL_MSG_SET_USB_STORAGE };
+    usb_storage_msg_t payload = { .free_gb = free_gb, .total_gb = total_gb };
+    memcpy(m.text, &payload, sizeof(payload));
+    xQueueSend(lvgl_queue, &m, pdMS_TO_TICKS(20));
+}
+
 /* --- 修正后的刷新逻辑 (彻底解决重影) --- */
 static void ui_refresh(void) {
     char buf[64];
+    static bool bFirst = 0;
     
     if (g_time_label) lv_obj_invalidate(g_time_label);
     if (g_boot_status) lv_obj_invalidate(g_boot_status);
+    if (g_usb_space_label) lv_obj_invalidate(g_usb_space_label);
+
     // 1. 刷新状态栏（全局唯一，不应有重影）
     time_t now = time(NULL);
     struct tm tinfo;
@@ -242,6 +267,30 @@ static void ui_refresh(void) {
     } else {
         lv_label_set_text(g_dl_status, "");
     }
+   
+    if(bFirst == 0 && (g_ui_state.usb_total_gb > 0.0f))
+    {
+        bFirst = 1;
+        // 当有有效容量数据时展示
+        if (g_ui_state.usb_total_gb > 0.0f) {
+            // 判断总容量是否小于 1GB (1.0f)
+            if (g_ui_state.usb_total_gb < 1.0f) {
+                // 【小于 1G】：按 MB 转换显示 (例如: 3.5/12.0M 或 3/12M)
+                float free_mb = g_ui_state.usb_free_gb * 1024.0f;
+                float total_mb = g_ui_state.usb_total_gb * 1024.0f;
+                
+                // 如果希望保留 1 位小数用 %.1f，希望显示整数用 %.0f
+                snprintf(buf, sizeof(buf), "%.1f/%.1fM", free_mb, total_mb);
+            } else {
+                // 【大于等于 1G】：按 GB 显示
+                snprintf(buf, sizeof(buf), "%.1f/%.1fG", g_ui_state.usb_free_gb, g_ui_state.usb_total_gb);
+            }
+            lv_label_set_text(g_usb_space_label, buf);
+        } else {
+            lv_label_set_text(g_usb_space_label, "");
+        }
+    }
+
 }
 static void ui_create_download_page(void) {
     g_pages[UI_PAGE_DOWNLOAD] = lv_obj_create(lv_scr_act());
@@ -402,6 +451,13 @@ void ui_create(void) {
     lv_obj_set_style_text_color(g_time_label, MD_COLOR_TXT_MAIN, 0);
     lv_obj_align(g_time_label, LV_ALIGN_TOP_LEFT, 8, 30);
 
+    // 1. 最右侧：U 盘容量文本 (例如: "12.5G")
+    g_usb_space_label = lv_label_create(sb);
+    lv_label_set_text(g_usb_space_label, "");
+    lv_obj_set_style_text_font(g_usb_space_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(g_usb_space_label, lv_color_hex(0x21A365), 0); // 绿色或暗灰
+    lv_obj_align(g_usb_space_label, LV_ALIGN_TOP_MID, 0, 30);
+
     g_usb_badge = lv_label_create(sb);
     lv_label_set_text(g_usb_badge, LV_SYMBOL_USB);
     lv_obj_align(g_usb_badge, LV_ALIGN_TOP_RIGHT, -8, 30);
@@ -446,9 +502,16 @@ void lvgl_task(void *arg) {
                     g_ui_state.download_eta_sec = p.eta_sec;
                     g_ui_state.download_done_bytes = p.downloaded_bytes;
                     g_ui_state.download_total_bytes = p.total_bytes;
+                }
                     break;
                 case LVGL_MSG_SET_TIME:
                     // 时间更新不需要修改状态结构体，直接刷新即可
+                    break;
+                case LVGL_MSG_SET_USB_STORAGE: {
+                    usb_storage_msg_t p;
+                    memcpy(&p, msg.text, sizeof(p));
+                    g_ui_state.usb_free_gb = p.free_gb;
+                    g_ui_state.usb_total_gb = p.total_gb;
                     break;
                 }
             }

@@ -28,6 +28,7 @@ typedef enum {
     LVGL_MSG_SET_DOWNLOAD_META,
     LVGL_MSG_DOWNLOAD_PROGRESS,
     LVGL_MSG_SET_TIME,
+    LVGL_MSG_SET_USB_STORAGE,      /* 新增：更新 U 盘空间 */
 } lvgl_msg_type_t;
 
 /* 下载进度负载 */
@@ -66,4 +67,5 @@ void ui_show_home(void);
 void ui_show_wifi(void);
 void ui_show_download(void);
 void ui_get_time(void);
+void ui_set_usb_storage(float free_gb, float total_gb);
 #endif

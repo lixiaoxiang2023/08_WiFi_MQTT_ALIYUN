@@ -409,25 +409,6 @@ void key_scan_task(void *arg)
         }
         switch (key)
         {
-            case KEY0_PRES:
-            {
-                login_response_t login_resp = {0};
-
-                // 1. 登录获取 Token
-                if (!http_login(&login_resp)) {
-                    ESP_LOGE("MAIN", "步骤1失败: 登录鉴权未通过");
-                    break; 
-                }
-
-                // 2. 获取产品列表 (Products)
-                if (http_get_all_products(login_resp.token)) {
-                    ESP_LOGI("MAIN", "步骤2成功: 已获取产品列表");
-                    // 这里建议立即处理 g_http_resp.buffer，比如解析出产品ID或存入其他变量
-                } else {
-                    ESP_LOGE("MAIN", "步骤2失败: 产品列表拉取异常");
-                }
-                break;
-            }
             case KEY1_PRES:
             {
                 printf("KEY1 has been pressed \n");

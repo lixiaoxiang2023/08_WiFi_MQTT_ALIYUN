@@ -163,27 +163,6 @@ void app_main(void)
         // board_usb_msc_control(false);
     }   
     /* ================= 本地任务 ================= */
-    //xTaskCreate(mem_monitor_task, "mem_mon", 4096, NULL, 5, NULL);
-    // xTaskCreatePinnedToCore(
-    //     file_task_worker,
-    //     "file_task_worker",
-    //     6* 1024,
-    //     NULL,
-    //     5,
-    //     NULL,
-    //     1
-    // );
-    // xTaskCreatePinnedToCore(
-    //     usb_copy_task,
-    //     "usb_copy",
-    //     4096,
-    //     NULL,
-    //     4,
-    //     NULL,
-    //     1
-    // );
-
-    //xTaskCreate(key_scan_task, "key_scan_task", 4* 1024, NULL, 5, NULL);
     // 将 key_scan_task 也固定到核心 1
     xTaskCreatePinnedToCore(
         key_scan_task, 

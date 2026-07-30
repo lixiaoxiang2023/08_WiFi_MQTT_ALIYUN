@@ -417,7 +417,29 @@ static esp_err_t tud_fat_partitions_init(const char *base_path)
 
     return ESP_OK;
 }
+/**
+ * @brief  获取指定挂载点的容量信息并上报 UI
+ * @param  base_path 挂载点路径 (如 "/sdcard" 或 "/spiflash")
+ */
+static void update_storage_info_to_ui(const char *base_path)
+{
+    uint64_t total_bytes = 0;
+    uint64_t free_bytes = 0;
 
+    esp_err_t err = esp_vfs_fat_info(base_path, &total_bytes, &free_bytes);
+    
+    // 【关键调试】打印看看究竟有没有读取成功
+    ESP_LOGI(TAG, "esp_vfs_fat_info [%s] ret: %s (0x%x)", base_path, esp_err_to_name(err), err);
+
+    if (err == ESP_OK) {
+        float free_gb = (float)free_bytes / (1024.0f * 1024.0f * 1024.0f);
+        float total_gb = (float)total_bytes / (1024.0f * 1024.0f * 1024.0f);
+
+        ui_set_usb_storage(free_gb, total_gb);
+    } else {
+        ui_set_usb_storage(0.0f, 0.0f); 
+    }
+}
 /**
  * @brief       选择 USB MSC 的存储后端，优先使用 TF 卡；无卡时回退到内部 flash
  * @param       base_path:挂载点路径
@@ -429,6 +451,8 @@ static esp_err_t tud_select_storage_backend(const char *base_path)
     if (ret == ESP_OK) {
         s_storage_source = STORAGE_SOURCE_TF_CARD;
         ESP_LOGI(TAG, "USB MSC storage backend: TF card");
+        // 【新增】获取 TF 卡容量并上报状态栏 UI
+        update_storage_info_to_ui(base_path);
         return ESP_OK;
     }
 
@@ -438,10 +462,13 @@ static esp_err_t tud_select_storage_backend(const char *base_path)
     if (ret == ESP_OK) {
         s_storage_source = STORAGE_SOURCE_INTERNAL_FLASH;
         ESP_LOGI(TAG, "USB MSC storage backend: internal flash");
+        // 【新增】获取 Flash 容量并上报状态栏 UI
+        update_storage_info_to_ui(base_path);
         return ESP_OK;
     }
 
     s_storage_source = STORAGE_SOURCE_NONE;
+
     return ret;
 }
 
