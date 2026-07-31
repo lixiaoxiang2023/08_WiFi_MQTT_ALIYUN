@@ -36,6 +36,7 @@ typedef struct {
     char ota_status[96];
     float usb_free_gb;     /* U 盘剩余空间 (GB) */
     float usb_total_gb;    /* U 盘总空间 (GB) */
+    bool server_connected; // 【新增】服务器是否连接/登录
 } ui_state_t;
 
 /* 新增：U 盘存储信息传递结构 */
@@ -49,6 +50,8 @@ static lv_obj_t *g_pages[UI_PAGE_MAX];
 static lv_obj_t *g_time_label, *g_wifi_badge, *g_usb_badge;
 /* 全局句柄中增加 U 盘空间 Label */
 static lv_obj_t *g_usb_space_label;
+// 定义全局变量（或静态变量）
+static lv_obj_t *g_server_badge = NULL;
 /* 页面组件句柄 */
 static lv_obj_t *g_boot_status, *g_boot_card;
 static lv_obj_t *g_wifi_ssid_val, *g_wifi_ip_val, *g_wifi_web_val, *g_wifi_mode_val;
@@ -122,6 +125,7 @@ static void ui_create_boot_page(void) {
     lv_obj_set_style_text_font(g_boot_status, &lv_font_montserrat_14, 0);
     lv_obj_align(g_boot_status, LV_ALIGN_TOP_MID, 0, 70);
 }
+
 /* --- 优化后的 WiFi 页面创建 (布局调整，避免超出界面) --- */
 static void ui_create_wifi_page(void) {
     g_pages[UI_PAGE_WIFI] = lv_obj_create(lv_scr_act());
@@ -214,6 +218,15 @@ void ui_set_usb_storage(float free_gb, float total_gb) {
     xQueueSend(lvgl_queue, &m, pdMS_TO_TICKS(20));
 }
 
+void ui_set_server_connected(bool connected)
+{
+    lvgl_msg_t m = {
+        .type = LVGL_MSG_SET_SERVER_STATUS,
+        .value = connected ? 1 : 0  // 假设你的 lvgl_msg_t 结构体有 int val 字段
+    };
+    xQueueSend(lvgl_queue, &m, pdMS_TO_TICKS(20));
+}
+
 /* --- 修正后的刷新逻辑 (彻底解决重影) --- */
 static void ui_refresh(void) {
     char buf[64];
@@ -278,7 +291,16 @@ static void ui_refresh(void) {
     } else {
         lv_label_set_text(g_dl_status, "");
     }
-   
+
+   // 【新增】控制服务器图标的“登入显示，不登入不显示”
+    if (g_server_badge) {
+        if (g_ui_state.server_connected) {
+            lv_obj_clear_flag(g_server_badge, LV_OBJ_FLAG_HIDDEN); // 显示图标
+        } else {
+            lv_obj_add_flag(g_server_badge, LV_OBJ_FLAG_HIDDEN);   // 隐藏图标
+        }
+    }
+
     if(bFirst == 0 && (g_ui_state.usb_total_gb > 0.0f))
     {
         bFirst = 1;
@@ -302,6 +324,10 @@ static void ui_refresh(void) {
         }
     }
 
+    // 【关键新增】服务器图标对齐：如果显示，就排在 Wi-Fi 图标左侧
+    if (g_server_badge && !lv_obj_has_flag(g_server_badge, LV_OBJ_FLAG_HIDDEN)) {
+        lv_obj_align_to(g_server_badge, g_wifi_badge, LV_ALIGN_OUT_LEFT_MID, -8, 0);
+    }
 }
 static void ui_create_download_page(void) {
     g_pages[UI_PAGE_DOWNLOAD] = lv_obj_create(lv_scr_act());
@@ -443,12 +469,17 @@ void ui_create(void) {
 
     // --- 调整 1：先创建页面，高度设为 146 ---
     ui_create_boot_page();     // 内部 lv_obj_set_size 需改为 320, 146
-    ui_create_wifi_page();     // 内部 lv_obj_set_size 需改为 320, 146
+    vTaskDelay(pdMS_TO_TICKS(5));
+    
+    ui_create_wifi_page();     // 内部 lv_obj_set_size 需改为 320, 146    
+    vTaskDelay(pdMS_TO_TICKS(5));
+
     ui_create_download_page(); // 内部 lv_obj_set_size 需改为 320, 146
+    vTaskDelay(pdMS_TO_TICKS(5));
 
     // --- 调整 2：后创建状态栏，确保它在对象树末尾（即顶层） ---
     lv_obj_t *sb = lv_obj_create(scr);
-    lv_obj_set_size(sb, 320, 60); // 高度从 60 缩减到 30
+    lv_obj_set_size(sb, 320, 60); // 
     lv_obj_align(sb, LV_ALIGN_TOP_MID, 0, 0);
     
     lv_obj_set_style_bg_color(sb, MD_COLOR_BG, 0);
@@ -477,12 +508,20 @@ void ui_create(void) {
     lv_label_set_text(g_wifi_badge, LV_SYMBOL_WIFI);
     lv_obj_align_to(g_wifi_badge, g_usb_badge, LV_ALIGN_BOTTOM_LEFT, -24, 0);
 
+    // 4. 【新增】服务器连接/登录图标 (默认隐藏)
+    g_server_badge = lv_label_create(sb);
+    // 可选符号：LV_SYMBOL_SETTINGS / LV_SYMBOL_DRIVE / LV_SYMBOL_OK / "S"
+    lv_label_set_text(g_server_badge, LV_SYMBOL_OK); 
+    lv_obj_set_style_text_color(g_server_badge, lv_color_hex(0x1E88E5), 0);
+    lv_obj_add_flag(g_server_badge, LV_OBJ_FLAG_HIDDEN);
+
+
     ui_switch_page_inner(UI_PAGE_BOOT);
 }
 
 void lvgl_task(void *arg) {
     lvgl_msg_t msg;
-    ui_create();
+   // ui_create();
     while (1) {
         if (xQueueReceive(lvgl_queue, &msg, pdMS_TO_TICKS(10))) {
             switch (msg.type) {
@@ -524,7 +563,11 @@ void lvgl_task(void *arg) {
                     g_ui_state.usb_free_gb = p.free_gb;
                     g_ui_state.usb_total_gb = p.total_gb;
                     break;
+                    
                 }
+                case LVGL_MSG_SET_SERVER_STATUS:
+                    g_ui_state.server_connected = (msg.value != 0);
+                    break;
             }
             ui_refresh();
         }

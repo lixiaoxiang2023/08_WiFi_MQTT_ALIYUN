@@ -554,8 +554,13 @@ void wifi_background_task(void *pv)
         if (http_login(&g_strResp)) {
             if (http_get_all_products(g_strResp.token)) {
                 sync_success = true;   
+                ui_set_server_connected(true);  // 【状态栏显示服务器图标】
                  vTaskDelay(pdMS_TO_TICKS(2000));
             }
+        }
+        else
+        {
+            ui_set_server_connected(false);  // 【状态栏显示服务器图标】
         }
         if (!sync_success) vTaskDelay(pdMS_TO_TICKS(2000));
     }

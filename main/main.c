@@ -147,6 +147,7 @@ void app_main(void)
     ESP_ERROR_CHECK(init_web_config_nvs()); // 【重要】添加这一行
     bool usb_boot_enabled = read_usb_boot_config_from_nvs(); 
     ESP_LOGI("MAIN", "从NVS加载U盘启动配置: %s", usb_boot_enabled ? "开启" : "关闭");
+    ui_create();
 
     // 根据读取到的布尔值，执行你的实时硬件或驱动控制
     if (usb_boot_enabled) {

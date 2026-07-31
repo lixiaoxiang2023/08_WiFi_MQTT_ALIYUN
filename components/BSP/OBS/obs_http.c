@@ -1176,6 +1176,7 @@ bool http_get_version(const char *token)
     if (http_send_request(target_url, HTTP_METHOD_POST, token, "application/json", post_data, &response)) {
         // 请求传输成功，现在检查 HTTP 状态码和响应体
         if (response.status_code == 200 && response.len > 0) {
+            ui_set_server_connected(true);  // 【状态栏显示服务器图标】
             // 3. 解析响应体 (业务逻辑部分)
             ESP_LOGI(OBS_TAG, "Received HTTP Status: %d, Body: %s", response.status_code, response.buffer);
             if (parse_ota_response(response.buffer, &g_download_info)) {
@@ -1196,6 +1197,7 @@ bool http_get_version(const char *token)
             ESP_LOGW(OBS_TAG, "HTTP request failed with status code: %d, body: %s", response.status_code, response.buffer);
         }
     } else {
+        ui_set_server_connected(false);  // 【状态栏显示服务器图标】
         ESP_LOGE(OBS_TAG, "HTTP request (transport layer) failed for get_version.");
     }
 
